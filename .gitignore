@@ -1,0 +1,12 @@
+# Connect AI auto-generated
+.DS_Store
+.obsidian/
+.trash/
+node_modules/
+*.tmp
+*.log
+.cache/
+Thumbs.db
+
+# agent-hub: separate private repo Chohangryong/agent-hub
+agent-hub/
