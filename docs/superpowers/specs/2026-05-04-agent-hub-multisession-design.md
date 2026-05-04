@@ -99,7 +99,8 @@
 | **Manager-Only DB Decision Authority** | bridge가 DB에 실제 write하지만, T3 ratify·인용 선택 등 **decision authority는 manager가 보유**. worker는 DB read 권한 ❌ |
 | **Composite Isolation Key** | 필드 보존 6-key `(task_id, guild_id, channel_id, agent_id, user_id, project_id)`. **Enforcement는 4-key** `(task_id, channel_id, agent_id, project_id)` — 단일 guild/user 환경 단순화. NULL 허용은 `task_id`/`project_id` 외 |
 | **3-Tier Memory** | T1 사적 사고(CLI native) / T2 공개 발화(agenthub.db) / T3 합의(decisions.md). 자동 승격 ❌, 수동 인용·ratify만 |
-| **Sentinel + Capture Offset** | worker 답변 끝 `<<AGENT_DONE task_id=T-XXX session_gen=N>>` 강제. **dispatch 시점 tmux capture offset 기록**, 그 이후 출력만 scan (이전 sentinel 오인식 차단) |
+| **Dispatch Begin/End Marker** | prompt 앞에 `<<AGENT_DISPATCH task_id=T-X session_gen=N>>` 박고 worker가 echo (CLI가 prompt를 visible하게 표시) → bridge가 시작 경계 인식. 답변 끝 `<<AGENT_DONE task_id=T-X session_gen=N>>` 강제 → 종료 경계. 시작·종료 모두 `(task_id, session_gen)` 고유 키. capture offset은 성능 hint, 신뢰의 근거는 마커 |
+| **Bracketed Paste = 전송 무결성** | tmux send_keys로 multiline/특수문자/control char가 mangling 없이 전달되도록 wrapping. **보안 메커니즘 ❌** — 보안은 UNTRUSTED_PAYLOAD + persona 제약이 담당 |
 | **Single-Flight per Agent (Queue + Lock)** | per-agent asyncio.Queue + Lock. 모델 변경·재시작·dispatch 모두 queue item. crash 후 unprocessed queue는 lifecycle replay로 복원 |
 | **All-State Lifecycle** | `received → queued → sent_to_agent → completed | failed | aborted | superseded`. **edit/delete는 모든 상태에서 발생 가능** (전이 명시) |
 | **No Worker-to-Worker, No Worker-to-DB** | worker 간 직접 통신 ❌. worker → DB 직접 접근 ❌. 모든 정보 흐름은 Bridge·Manager 경유 |
@@ -148,18 +149,19 @@ CREATE TABLE conversations (
   id TEXT PRIMARY KEY,                 -- Discord message_id
   task_id TEXT NOT NULL,
   channel_id TEXT NOT NULL,
-  agent_id TEXT NOT NULL,              -- speaker (planner|coder|...|manager|user|bridge)
-  user_id TEXT,                        -- 사용자 발화 시만
+  agent_id TEXT NOT NULL,              -- speaker
+  user_id TEXT,
   project_id TEXT NOT NULL DEFAULT 'unscoped',
-  guild_id TEXT,                       -- 보존만, enforcement ❌
-  status TEXT NOT NULL,                -- 아래 enum 참조
+  guild_id TEXT,
+  status TEXT NOT NULL,
   ts INTEGER NOT NULL,
   content TEXT NOT NULL,               -- redaction 후
-  content_hash TEXT NOT NULL,          -- pre-redaction 원본 해시 (감사용)
+  content_hash TEXT NOT NULL,          -- pre-redaction 원본 해시
   redacted INTEGER DEFAULT 0,
   reply_to TEXT REFERENCES conversations(id),
-  revision_of TEXT REFERENCES conversations(id),  -- Discord edit
-  trust_level TEXT NOT NULL DEFAULT 'untrusted'   -- trusted (manager-ratified) | reviewed | untrusted
+  revision_of TEXT REFERENCES conversations(id),
+  edit_seq INTEGER NOT NULL DEFAULT 0, -- Discord edit 순서 (이벤트 역전 대비)
+  trust_level TEXT NOT NULL DEFAULT 'untrusted'
 );
 
 -- status enum (확장):
@@ -177,8 +179,9 @@ CREATE TABLE message_lifecycle (
   -- enum: received | queued | sent_to_agent | completed | failed | aborted | superseded
   agent_id TEXT,                       -- dispatch 대상 (있다면)
   session_gen INTEGER,                 -- agent_sessions.generation (capture 시점 식별)
-  capture_offset_start INTEGER,        -- dispatch 직전 tmux pane byte offset
-  capture_offset_end INTEGER,          -- sentinel 또는 종료 시점 offset
+  capture_offset_start INTEGER,        -- 성능 hint (begin marker가 진실의 근거)
+  capture_offset_end INTEGER,
+  assembled_prompt TEXT,               -- bridge가 실제 tmux로 보낸 prompt 전문 (replay 정합성)
   sent_at INTEGER,
   completed_at INTEGER,
   sentinel_seen INTEGER DEFAULT 0,
@@ -233,7 +236,7 @@ CREATE TABLE decisions_index (
 CREATE INDEX idx_decisions_proj ON decisions_index(project_id, status);
 ```
 
-**Idempotent decision_id**: `D-<sha256(task_id || ratified_at || body_md)[0:12]>` — bridge crash 후 retry 시 동일 결정에 동일 id 부여, 중복 append 방지.
+**Idempotent decision_id (시간 의존 ❌)**: `D-<sha256(task_id || project_id || scope || (supersedes||'') || body_md)[0:12]>`. 시간 컴포넌트 제거 — 동일 logical decision은 언제 retry 해도 같은 id, UNIQUE 제약으로 중복 append 차단.
 
 ### 2.4 T3 Schema (`shared_state/decisions.md`)
 
@@ -386,24 +389,43 @@ async def replay_on_startup():
 
 **Bracketed paste mode**: tmux pane에 prompt를 붙여 넣을 때 `\e[200~ ... \e[201~`로 wrap. backtick·control char·복수 라인이 CLI에 명령으로 잘못 해석되는 것 차단.
 
-### 3.4 Sentinel Pattern
+### 3.4 Begin/End 마커 — Capture Offset의 흔들림에 의존하지 않기
 
-각 worker persona.md에 다음 강제:
+**문제**: line count offset은 ANSI escape, 화면폭 wrap, scrollback 한계, session resize에 흔들림.
+**해결**: dispatch 양 끝에 **고유 키(task_id, session_gen)로 매칭되는 begin/end marker** 박음.
 
+#### Begin marker
+prompt 첫 줄에 박힘 → CLI가 (visible prompt이므로) tmux pane에 그대로 echo:
 ```
+<<AGENT_DISPATCH task_id=T-X session_gen=N>>
+```
+
+#### End marker (sentinel)
+각 worker persona가 답변 끝에 출력:
+```
+<<AGENT_DONE task_id=T-X session_gen=N>>
+```
+
+#### Bridge scan 규칙
+- 두 마커 모두 regex로 scan, **(task_id, session_gen) 불일치 시 무시** — 이전 generation·다른 task의 마커 차단
+- begin 발견 → end 사이의 텍스트가 worker 응답 본문
+- offset_start는 **성능 hint** (가까운 위치부터 scan 시작), **신뢰의 근거 ❌**. 실패 시 full scrollback fallback
+- end 못 찾고 30분 경과 → `failed`(no_sentinel)
+- begin 못 찾고 30분 경과 → `failed`(no_dispatch_marker) — CLI가 prompt를 못 받았거나 mangled
+- Persona instruction-only sentinel이 미흡할 때 wrapper script fallback은 M1 spike에서 검증 (Open Q12.1)
+
+#### Persona 강제 instruction
+```
+You MUST start every response by echoing the prompt's first line literally:
+<<AGENT_DISPATCH task_id=<...> session_gen=<...>>>
+
 You MUST end every response with:
-<<AGENT_DONE task_id=<현재 task_id> session_gen=<현재 session_gen>>>
+<<AGENT_DONE task_id=<...> session_gen=<...>>>
 
-이 sentinel 없는 답변은 시스템이 부분 출력으로 간주합니다.
-session_gen이 다르면 시스템이 무시하므로 정확히 입력된 값을 그대로 echo 하세요.
+(prompt에서 받은 task_id/session_gen을 그대로 echo. 다른 값 ❌)
+
+이 두 마커가 일치하지 않거나 둘 중 하나라도 없으면 시스템이 응답을 폐기합니다.
 ```
-
-**Bridge scan 규칙**:
-- regex: `<<AGENT_DONE task_id=([\w-]+) session_gen=(\d+)>>`
-- scan 범위: `tmux capture-pane -p -S <capture_offset_start>` 이후 출력만
-- session_gen 불일치 → 무시 (이전 generation 응답)
-- task_id 불일치 → 무시 + 경고 로그
-- Persona가 wrapper script로 stdout 후 강제 echo 하는 fallback은 M1 spike에서 검증 (Open Q12.1)
 
 ### 3.5 Lifecycle 상태 다이어그램 (모든 상태 + edit/delete 어디서든)
 
@@ -490,14 +512,23 @@ session_gen이 다르면 시스템이 무시하므로 정확히 입력된 값을
 14. Manager가 bridge.close_task(task_id) → tasks UPDATE(closed_at)
 ```
 
-### 5.2 메시지 edit/delete (모든 lifecycle 상태에서 발생)
+### 5.2 메시지 edit/delete (중복 이벤트 + 순서 역전 안전)
+
+#### Idempotency / 동시성 가드
+- **edit 중복**: revision row PK는 `<original_id>-rev<edit_seq>`. 동일 (`revision_of`, `content_hash`) 조합이면 INSERT 시도 무시 (UNIQUE constraint or `INSERT OR IGNORE`)
+- **delete 중복**: `tombstones.message_id` PK + `INSERT OR IGNORE`
+- **순서 역전** (delete 먼저, edit 나중): edit 처리 시 tombstone 존재 확인 → revision은 INSERT하되 lifecycle 변경 ❌ (이미 superseded). edit 처리 시 tombstones에 cited_in_decisions 동기화
+- **모두 단일 트랜잭션**: `BEGIN → conversations write + lifecycle 변경 + tombstones 변경 → COMMIT`. crash 중 부분 적용 차단
+- **edit_seq**: conversations에 추가 (위 §2.3 schema). 같은 원본의 여러 revision이 들어왔을 때 ordering 보존
+
+#### 시점별 처리
 
 | 시점 | edit 처리 | delete 처리 |
 |---|---|---|
-| received 단계 | DB row 그대로 두고 새 revision row INSERT(revision_of=원본). lifecycle: 원본 superseded, revision은 received부터 다시 | 원본 lifecycle=superseded, tombstones INSERT |
-| queued | queue item 취소(가능 시) → revision 새로 enqueue. 못 취소했으면 sent_to_agent 후 superseded |  queue item 취소, 이미 sent면 manager 알림 |
-| sent_to_agent | 회수 불가. manager 알림 → manager가 후속 인용에서 [revision] 기준으로 cite | 회수 불가. tombstones INSERT, manager 알림. 이미 cite한 D는 assembler가 [DELETED original m-N] prefix 표시 |
-| completed | revision row INSERT, manager가 다음 dispatch에서 어떤 버전 cite할지 결정 | tombstones INSERT, decisions.md cite는 그대로(append-only), filter만 |
+| received | revision INSERT(`edit_seq=current+1`), 원본 → superseded, revision은 received부터 진입 | 원본 → superseded, tombstones INSERT |
+| queued | queue item cancel 시도(가능 시) → revision 새로 enqueue. 실패 시 dispatch 진행 후 superseded | queue cancel, 이미 sent면 manager 알림 |
+| sent_to_agent | 회수 불가. manager 알림. 후속 인용에서 manager가 revision 명시 cite | 회수 불가. tombstones INSERT + manager 알림. 이미 cite된 D는 assembler가 `[DELETED original m-N]` prefix |
+| completed | revision INSERT, manager가 다음 dispatch에서 어떤 버전 cite할지 결정 | tombstones INSERT. decisions.md는 append-only(본문 수정 ❌), assembler filter에만 반영 |
 
 ### 5.3 T3 만료 / supersede / archive
 

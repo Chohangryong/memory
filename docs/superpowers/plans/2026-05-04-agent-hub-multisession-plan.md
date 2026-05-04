@@ -247,7 +247,9 @@ git commit -m "chore: Python project skeleton"
 
 ## M1 — 골격 + Sentinel / Bracketed-Paste Spike (1일)
 
-### Task 1.1: tmux_io 기초 — send_bracketed_paste
+### Task 1.1: tmux_io 기초 — bracketed paste (전송 무결성) + begin/end 마커 scan
+
+> **중요**: bracketed paste는 **전송 무결성 메커니즘**(multiline·특수문자가 mangling 없이 pane에 도달). 보안이 아니다 — 보안은 UNTRUSTED_PAYLOAD + persona 제약이 담당. cat 기반 테스트는 sentinel 미준수 risk를 못 잡으므로 Task 1.3 spike가 hard gate.
 
 **Files:**
 - Create: `bridge/tmux_io.py`
@@ -258,7 +260,9 @@ git commit -m "chore: Python project skeleton"
 ```python
 import pytest
 import libtmux
-from bridge.tmux_io import send_bracketed_paste, capture_pane_size
+from bridge.tmux_io import (
+    send_bracketed_paste, capture_pane_size, scan_dispatch_window,
+)
 
 @pytest.fixture
 def tmux_session(tmp_path):
@@ -267,21 +271,37 @@ def tmux_session(tmp_path):
     yield sess
     sess.kill_session()
 
-def test_bracketed_paste_wraps_with_escape(tmux_session):
+def test_bracketed_paste_preserves_multiline_and_specials(tmux_session):
+    """bracketed paste = 전송 무결성. 보안 아님."""
     pane = tmux_session.attached_pane
-    pane.send_keys("cat", enter=True)  # cat이 input 그대로 출력
-    send_bracketed_paste(pane, "echo `evil` $RANDOM")
+    pane.send_keys("cat", enter=True)
+    text = "line one\nline two with `backtick` and $VAR\nline three"
+    send_bracketed_paste(pane, text)
     pane.send_keys("", enter=True)
-    out = pane.capture_pane()
-    # backtick과 $가 escape되어 그대로 보여야 함
-    assert any("echo `evil` $RANDOM" in line for line in out)
+    out = "\n".join(pane.capture_pane())
+    assert "line one" in out and "line two with `backtick` and $VAR" in out and "line three" in out
 
-def test_capture_pane_size_returns_increasing_offset(tmux_session):
+def test_scan_dispatch_window_finds_paired_markers(tmux_session):
+    """begin/end 마커 (task_id, session_gen) 일치 쌍만 잡힘."""
     pane = tmux_session.attached_pane
-    a = capture_pane_size(pane)
-    pane.send_keys("echo first", enter=True)
-    b = capture_pane_size(pane)
-    assert b > a
+    pane.send_keys("cat", enter=True)
+    pane.send_keys("<<AGENT_DISPATCH task_id=T-1 session_gen=2>>", enter=True)
+    pane.send_keys("body line", enter=True)
+    pane.send_keys("<<AGENT_DONE task_id=T-1 session_gen=2>>", enter=True)
+    import time; time.sleep(0.5)
+    result = scan_dispatch_window(pane, expected_task_id="T-1", expected_session_gen=2, hint_offset=0)
+    assert result is not None
+    assert "body line" in result["body"]
+
+def test_scan_ignores_mismatched_session_gen(tmux_session):
+    """이전 generation의 마커는 무시."""
+    pane = tmux_session.attached_pane
+    pane.send_keys("cat", enter=True)
+    pane.send_keys("<<AGENT_DISPATCH task_id=T-1 session_gen=1>>", enter=True)
+    pane.send_keys("<<AGENT_DONE task_id=T-1 session_gen=1>>", enter=True)
+    import time; time.sleep(0.5)
+    result = scan_dispatch_window(pane, expected_task_id="T-1", expected_session_gen=99, hint_offset=0)
+    assert result is None
 ```
 
 - [ ] **Step 2**: 테스트 실행 → fail (`bridge.tmux_io` 모듈 없음)
@@ -293,7 +313,13 @@ uv run pytest tests/test_tmux_io.py -v
 - [ ] **Step 3**: `bridge/tmux_io.py` 작성
 
 ```python
-"""tmux pane I/O — bracketed paste mode + offset 기반 capture."""
+"""tmux pane I/O — bracketed paste (전송 무결성) + begin/end marker 기반 dispatch window scan.
+
+설계 결정:
+- bracketed paste는 transmission integrity (multiline/특수문자 mangling 방지). 보안 ❌.
+- offset(line count)은 ANSI/wrap/scrollback에 흔들리므로 성능 hint로만 사용.
+- 진실의 근거는 (task_id, session_gen)으로 페어링되는 begin/end marker.
+"""
 from __future__ import annotations
 
 import re
@@ -302,15 +328,20 @@ import libtmux
 _BRACKETED_PASTE_BEGIN = "\x1b[200~"
 _BRACKETED_PASTE_END = "\x1b[201~"
 
-_SENTINEL_RE = re.compile(
+_DISPATCH_BEGIN_RE = re.compile(
+    r"<<AGENT_DISPATCH\s+task_id=(?P<task>[\w-]+)\s+session_gen=(?P<gen>\d+)>>"
+)
+_DISPATCH_END_RE = re.compile(
     r"<<AGENT_DONE\s+task_id=(?P<task>[\w-]+)\s+session_gen=(?P<gen>\d+)>>"
 )
 
 
 def send_bracketed_paste(pane: libtmux.Pane, text: str) -> None:
-    """tmux pane에 텍스트를 bracketed paste mode로 보냄.
+    """multiline/특수문자/control char가 mangling 없이 pane에 도달하도록 bracketed paste로 wrap.
 
-    backtick, $, 줄바꿈 등이 CLI에 명령으로 잘못 해석되지 않도록 wrapping.
+    SECURITY NOTE: 이 wrapping은 전송 무결성을 위한 것이며, CLI 안에서 모델이
+    텍스트를 어떻게 해석하는지에 대해선 어떤 보장도 하지 않는다.
+    Prompt injection 방어는 UNTRUSTED_PAYLOAD wrapping + persona 제약 책임.
     """
     payload = f"{_BRACKETED_PASTE_BEGIN}{text}{_BRACKETED_PASTE_END}"
     pane.send_keys(payload, enter=False, suppress_history=True, literal=True)
@@ -318,46 +349,73 @@ def send_bracketed_paste(pane: libtmux.Pane, text: str) -> None:
 
 
 def capture_pane_size(pane: libtmux.Pane) -> int:
-    """현재 pane scrollback의 line count를 반환 (capture offset 기준)."""
+    """현재 pane scrollback line count. Offset hint 용도. ANSI/wrap에 흔들리므로 신뢰 ❌."""
     lines = pane.capture_pane(start="-")
     return len(lines)
 
 
-def capture_pane_after(pane: libtmux.Pane, offset_start: int) -> list[str]:
-    """offset_start 라인 이후의 capture 반환."""
-    lines = pane.capture_pane(start="-")
-    return lines[offset_start:] if offset_start < len(lines) else []
+def _all_lines(pane: libtmux.Pane) -> list[str]:
+    return pane.capture_pane(start="-")
 
 
-def scan_sentinel(
+def scan_dispatch_window(
     pane: libtmux.Pane,
-    offset_start: int,
     expected_task_id: str,
     expected_session_gen: int,
+    hint_offset: int = 0,
 ) -> dict | None:
-    """offset_start 이후 출력에서 sentinel을 찾음.
+    """begin marker와 end marker를 모두 (task_id, session_gen) 일치로 찾고,
+    그 사이의 본문을 반환.
+
+    - hint_offset: 성능 최적화용 시작 위치 (이 위치부터 scan, 못 찾으면 처음부터 fallback)
+    - (task_id, session_gen) 둘 다 일치하지 않으면 무시 (false positive 차단)
 
     Returns:
-        dict with {task_id, session_gen, body, offset_end} or None if not found.
-        task_id/session_gen 불일치 시도 None (false positive 차단).
+        {task_id, session_gen, body, offset_begin, offset_end} 또는 None
     """
-    lines = capture_pane_after(pane, offset_start)
-    for idx, line in enumerate(lines):
-        m = _SENTINEL_RE.search(line)
-        if not m:
-            continue
-        if m.group("task") != expected_task_id:
-            continue
-        if int(m.group("gen")) != expected_session_gen:
-            continue
-        body = "\n".join(lines[: idx + 1])
-        return {
-            "task_id": m.group("task"),
-            "session_gen": int(m.group("gen")),
-            "body": body,
-            "offset_end": offset_start + idx + 1,
-        }
-    return None
+    lines = _all_lines(pane)
+    begin_idx, end_idx = _find_paired_markers(
+        lines, hint_offset, expected_task_id, expected_session_gen
+    )
+    if begin_idx is None and hint_offset > 0:
+        # Fallback: hint를 신뢰 못 함 → 전체 scrollback 재 scan
+        begin_idx, end_idx = _find_paired_markers(lines, 0, expected_task_id, expected_session_gen)
+    if begin_idx is None or end_idx is None:
+        return None
+    body = "\n".join(lines[begin_idx + 1 : end_idx])
+    return {
+        "task_id": expected_task_id,
+        "session_gen": expected_session_gen,
+        "body": body,
+        "offset_begin": begin_idx,
+        "offset_end": end_idx + 1,
+    }
+
+
+def _find_paired_markers(
+    lines: list[str],
+    start: int,
+    task_id: str,
+    session_gen: int,
+) -> tuple[int | None, int | None]:
+    begin_idx: int | None = None
+    for i in range(start, len(lines)):
+        line = lines[i]
+        if begin_idx is None:
+            m = _DISPATCH_BEGIN_RE.search(line)
+            if m and m.group("task") == task_id and int(m.group("gen")) == session_gen:
+                begin_idx = i
+                continue
+        else:
+            m = _DISPATCH_END_RE.search(line)
+            if m and m.group("task") == task_id and int(m.group("gen")) == session_gen:
+                return begin_idx, i
+    return begin_idx, None
+
+
+# 하위 호환 wrapper (기존 scan_sentinel 호출 케이스 마이그레이션 중)
+def scan_sentinel(pane, offset_start, expected_task_id, expected_session_gen):
+    return scan_dispatch_window(pane, expected_task_id, expected_session_gen, hint_offset=offset_start)
 ```
 
 - [ ] **Step 4**: 테스트 통과 확인
@@ -375,54 +433,74 @@ git add bridge/tmux_io.py tests/test_tmux_io.py
 git commit -m "feat(bridge): tmux bracketed paste + offset-based sentinel scan"
 ```
 
-### Task 1.2: Sentinel scan 단위 테스트 (false positive 차단)
+### Task 1.2: Begin/End 마커 — 이전 task 마커 오인식 차단 + offset 신뢰성 시험
 
 **Files:**
 - Modify: `tests/test_tmux_io.py`
 
-- [ ] **Step 1**: 추가 테스트 (이전 sentinel 오인식 차단 + session_gen mismatch 차단)
+- [ ] **Step 1**: 추가 테스트
 
 ```python
-def test_scan_sentinel_ignores_old_offset(tmux_session):
+def test_old_dispatch_window_does_not_match_new_session(tmux_session):
+    """이전 dispatch의 마커 쌍이 새 (task_id, session_gen) 요청과 매칭되지 않음."""
     pane = tmux_session.attached_pane
-    pane.send_keys("echo '<<AGENT_DONE task_id=T-OLD session_gen=1>>'", enter=True)
+    pane.send_keys("cat", enter=True)
+    pane.send_keys("<<AGENT_DISPATCH task_id=T-OLD session_gen=1>>", enter=True)
+    pane.send_keys("old body", enter=True)
+    pane.send_keys("<<AGENT_DONE task_id=T-OLD session_gen=1>>", enter=True)
     import time; time.sleep(0.5)
-    offset_after_old = capture_pane_size(pane)
-    pane.send_keys("echo 'new dispatch line'", enter=True)
-    pane.send_keys("echo '<<AGENT_DONE task_id=T-NEW session_gen=2>>'", enter=True)
+
+    pane.send_keys("<<AGENT_DISPATCH task_id=T-NEW session_gen=2>>", enter=True)
+    pane.send_keys("new body", enter=True)
+    pane.send_keys("<<AGENT_DONE task_id=T-NEW session_gen=2>>", enter=True)
     time.sleep(0.5)
 
-    from bridge.tmux_io import scan_sentinel
-    result = scan_sentinel(pane, offset_after_old, "T-NEW", 2)
-    assert result is not None
-    assert result["task_id"] == "T-NEW"
+    from bridge.tmux_io import scan_dispatch_window
+    # 새 요청 — T-NEW만 매칭
+    result = scan_dispatch_window(pane, "T-NEW", 2, hint_offset=0)
+    assert "new body" in result["body"]
+    assert "old body" not in result["body"]
 
-    # 이전 offset부터 scan하면 잘못 T-OLD가 잡혀선 안 됨 → 명시적으로 T-NEW만 통과
-    result2 = scan_sentinel(pane, 0, "T-OLD", 99)  # gen mismatch
-    assert result2 is None  # gen 안 맞으면 무시
+def test_offset_hint_unreliable_falls_back_to_full_scan(tmux_session):
+    """hint_offset이 잘못돼도 전체 scrollback fallback."""
+    pane = tmux_session.attached_pane
+    pane.send_keys("cat", enter=True)
+    pane.send_keys("<<AGENT_DISPATCH task_id=T-A session_gen=1>>", enter=True)
+    pane.send_keys("body A", enter=True)
+    pane.send_keys("<<AGENT_DONE task_id=T-A session_gen=1>>", enter=True)
+    import time; time.sleep(0.5)
+    from bridge.tmux_io import scan_dispatch_window
+    # hint_offset이 마커 뒤를 가리켜도 fallback으로 처음부터 재 scan
+    result = scan_dispatch_window(pane, "T-A", 1, hint_offset=999)
+    assert result is not None
+    assert "body A" in result["body"]
 ```
 
-- [ ] **Step 2**: 테스트 통과 확인 (수정 없이 패스해야 정상 — 위 코드의 design intent)
+- [ ] **Step 2**: 테스트 실행
 
 ```bash
 uv run pytest tests/test_tmux_io.py -v
 ```
 
+Expected: 5 passed
+
 - [ ] **Step 3**: 커밋
 
 ```bash
 git add tests/test_tmux_io.py
-git commit -m "test(tmux_io): sentinel false-positive 차단 검증"
+git commit -m "test(tmux_io): begin/end 마커 페어 매칭 + offset hint fallback"
 ```
 
-### Task 1.3: Sentinel 강제력 검증 spike (Open Q12.1)
+### Task 1.3: Sentinel 강제력 spike — **M2 진입 HARD GATE**
+
+> 🚨 **이 task는 M2 시작 전 결과를 강제한다.** miss 비율 > 1/10이면 wrapper script fallback이 M1에 추가되어야 M2 진입 가능.
+>
+> 이유: cat 기반 단위 테스트는 sentinel을 무조건 출력하므로 실제 CLI 모델의 instruction 준수 여부를 검증 못 함. 이 spike가 유일한 검증 수단. spike 미실행 또는 결과 없는 상태로 M2 진행 시 시스템 전체가 sentinel 가정에 의존하므로 dogfooding 단계에서 폭발.
 
 **Files:**
 - Create: `scripts/spike_sentinel_codex.sh`
 - Create: `scripts/spike_sentinel_gemini.sh`
 - Create: `docs/spike-results/sentinel-strength.md`
-
-> **목적**: persona instruction만으로 Codex CLI / Gemini CLI가 sentinel을 따르는지 실측. 미흡 시 wrapper script fallback 결정.
 
 - [ ] **Step 1**: spike 스크립트 작성 (`scripts/spike_sentinel_codex.sh`)
 
@@ -464,29 +542,61 @@ chmod +x scripts/spike_sentinel_*.sh
 ./scripts/spike_sentinel_gemini.sh 2>&1 | tee /tmp/spike-gemini.log
 ```
 
-- [ ] **Step 4**: `docs/spike-results/sentinel-strength.md` 작성 — miss 비율, 미흡 시 wrapper fallback 설계 결정
+- [ ] **Step 4**: spike 두 가지 (begin marker echo + end marker) 모두 측정. 스크립트 prompt도 begin marker 포함하도록 수정
 
-```markdown
-# Sentinel 강제력 spike 결과 (M1)
+```bash
+# spike_sentinel_codex.sh의 PROMPT 수정
+PROMPT="<<AGENT_DISPATCH task_id=$TASK_ID session_gen=1>>
+현재 task_id는 $TASK_ID. session_gen=1.
+이 응답의 첫 줄에 위 begin marker를 그대로 echo,
+답변 끝에 <<AGENT_DONE task_id=$TASK_ID session_gen=1>> 출력.
+짧게 'hello' 답해."
 
-## Codex CLI
-- miss: N / 10
-- 패턴 분석: ...
-
-## Gemini CLI
-- miss: N / 10
-- ...
-
-## 결정
-- [ ] miss < 1/10: instruction-only 채택
-- [ ] miss ≥ 2/10: wrapper script fallback (CLI 출력 후 `echo "<<AGENT_DONE...>>"` 강제 append)
+# 검증 시 두 마커 모두 검사
+if ! echo "$OUT" | grep -qE "<<AGENT_DISPATCH task_id=$TASK_ID session_gen=1>>"; then
+  BEGIN_MISS=$((BEGIN_MISS+1))
+fi
+if ! echo "$OUT" | grep -qE "<<AGENT_DONE task_id=$TASK_ID session_gen=1>>"; then
+  END_MISS=$((END_MISS+1))
+fi
 ```
 
-- [ ] **Step 5**: 커밋 (script + 결과)
+- [ ] **Step 5**: `docs/spike-results/sentinel-strength.md` — 결정과 함께 작성
+
+```markdown
+# Sentinel 강제력 spike 결과 (M1) — M2 진입 GATE
+
+## Codex CLI
+- begin marker miss: N / 10
+- end marker miss: N / 10
+- 둘 다 출력한 횟수: N / 10
+
+## Gemini CLI
+- begin marker miss: N / 10
+- end marker miss: N / 10
+- 둘 다 출력한 횟수: N / 10
+
+## 결정 (이 결과에 따라 M2 진행 가능 여부 결정)
+
+### Case A: 양쪽 둘 다 miss < 1/10
+- [ ] instruction-only 채택. M2 진행 OK
+
+### Case B: miss ≥ 2/10 또는 한쪽 CLI에서 일관 실패
+- [ ] M1.5 추가 task: wrapper script fallback 구현 후 M2 진행
+  - tmux send_keys 후 `tmux send-keys "<<AGENT_DONE task_id=...>>" Enter` 강제 append
+  - begin marker는 prompt에 이미 포함, fallback echo 불필요
+  - 단, 모델이 답변 도중 멈추면 false complete 가능 → timeout 짧게 + retry
+
+### Case C: 둘 다 일관 무시
+- [ ] 워커별 모델 변경 또는 prompt format 재설계 (M2 차단)
+```
+
+- [ ] **Step 6**: spike 결과 commit + spec/Open Q12.1 갱신
 
 ```bash
 git add scripts/spike_sentinel_*.sh docs/spike-results/sentinel-strength.md
-git commit -m "spike(M1): sentinel 강제력 측정 + fallback 결정"
+git commit -m "spike(M1): sentinel begin/end 강제력 측정 — M2 GATE"
+# spike 결과에 따라 spec §12 Open Q12.1 → 결정으로 변경 (별도 commit)
 ```
 
 ### Task 1.4: bridge/__main__ skeleton + launchd
@@ -669,11 +779,15 @@ CREATE TABLE IF NOT EXISTS conversations (
   redacted INTEGER DEFAULT 0,
   reply_to TEXT REFERENCES conversations(id),
   revision_of TEXT REFERENCES conversations(id),
+  edit_seq INTEGER NOT NULL DEFAULT 0,
   trust_level TEXT NOT NULL DEFAULT 'untrusted'
 );
 CREATE INDEX IF NOT EXISTS idx_conv_task ON conversations(task_id, ts);
 CREATE INDEX IF NOT EXISTS idx_conv_channel_ts ON conversations(channel_id, ts);
 CREATE INDEX IF NOT EXISTS idx_conv_revision ON conversations(revision_of);
+-- 같은 원본의 동일 (revision_of, content_hash) 조합 중복 INSERT 차단 (edit 중복 이벤트)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_conv_revision_hash
+  ON conversations(revision_of, content_hash) WHERE revision_of IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS message_lifecycle (
   message_id TEXT PRIMARY KEY REFERENCES conversations(id),
@@ -682,6 +796,7 @@ CREATE TABLE IF NOT EXISTS message_lifecycle (
   session_gen INTEGER,
   capture_offset_start INTEGER,
   capture_offset_end INTEGER,
+  assembled_prompt TEXT,           -- bridge가 실제 tmux로 보낸 prompt (replay 정합성)
   sent_at INTEGER,
   completed_at INTEGER,
   sentinel_seen INTEGER DEFAULT 0,
@@ -872,23 +987,57 @@ async def test_invalid_transition_rejected(lcm, db):
         await lcm.transition("m-2", MessageState.COMPLETED)  # received → completed 직행 금지
 
 async def test_edit_creates_revision_and_supersedes(lcm, db):
-    # 원본 received 상태
-    for mid in ("m-orig", ):
-        await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
-                         (mid, "T", "c", "user", "p", "requirement", 1, "old", "h"))
+    await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+                     ("m-orig", "T", "c", "user", "p", "requirement", 1, "old", "h"))
     await lcm.transition("m-orig", MessageState.RECEIVED)
-    # edit 도착 — revision row + 원본 superseded
     await lcm.handle_edit(
-        original_id="m-orig",
-        new_id="m-orig-rev1",
-        new_content="new",
-        new_content_hash="h2",
-        ts=2,
+        original_id="m-orig", new_id="m-orig-rev1",
+        new_content="new", new_content_hash="h2", ts=2,
     )
     orig = await db.fetchone("SELECT state FROM message_lifecycle WHERE message_id=?", ("m-orig",))
-    rev = await db.fetchone("SELECT revision_of FROM conversations WHERE id=?", ("m-orig-rev1",))
+    rev = await db.fetchone("SELECT revision_of, edit_seq FROM conversations WHERE id=?", ("m-orig-rev1",))
     assert orig["state"] == "superseded"
     assert rev["revision_of"] == "m-orig"
+    assert rev["edit_seq"] == 1
+
+async def test_duplicate_edit_event_is_noop(lcm, db):
+    """Discord 재연결 후 같은 edit 이벤트 두 번 도착해도 revision 1개만."""
+    await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+                     ("m-d", "T", "c", "user", "p", "requirement", 1, "old", "h"))
+    await lcm.transition("m-d", MessageState.RECEIVED)
+    await lcm.handle_edit(original_id="m-d", new_id="m-d-r1",
+                          new_content="new", new_content_hash="hnew", ts=2)
+    # 같은 hash로 다시 들어옴
+    await lcm.handle_edit(original_id="m-d", new_id="m-d-r1-dup",
+                          new_content="new", new_content_hash="hnew", ts=3)
+    rows = await db.fetchall("SELECT id FROM conversations WHERE revision_of=?", ("m-d",))
+    assert len(rows) == 1  # 중복 INSERT 차단
+
+async def test_delete_then_edit_order_reversal(lcm, db):
+    """delete가 먼저 도착하고 edit가 나중에 와도 정합성 유지."""
+    await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+                     ("m-r", "T", "c", "user", "p", "requirement", 1, "old", "h"))
+    await lcm.transition("m-r", MessageState.RECEIVED)
+    # delete 먼저
+    await lcm.handle_delete("m-r")
+    state_after_del = await db.fetchone("SELECT state FROM message_lifecycle WHERE message_id=?", ("m-r",))
+    assert state_after_del["state"] == "superseded"
+    # edit 나중 — revision row는 만들지만 lifecycle 변경 안 함
+    await lcm.handle_edit(original_id="m-r", new_id="m-r-rev1",
+                          new_content="new", new_content_hash="h2", ts=2)
+    rev = await db.fetchone("SELECT id FROM conversations WHERE id=?", ("m-r-rev1",))
+    assert rev is not None
+    state_still = await db.fetchone("SELECT state FROM message_lifecycle WHERE message_id=?", ("m-r",))
+    assert state_still["state"] == "superseded"  # 변경 없음
+
+async def test_duplicate_delete_event_is_noop(lcm, db):
+    await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+                     ("m-d2", "T", "c", "user", "p", "requirement", 1, "x", "h"))
+    await lcm.transition("m-d2", MessageState.RECEIVED)
+    await lcm.handle_delete("m-d2")
+    await lcm.handle_delete("m-d2")  # 중복
+    rows = await db.fetchall("SELECT message_id FROM tombstones WHERE message_id=?", ("m-d2",))
+    assert len(rows) == 1
 ```
 
 - [ ] **Step 2**: `bridge/lifecycle.py`
@@ -990,33 +1139,73 @@ class LifecycleManager:
         new_content_hash: str,
         ts: int,
     ) -> None:
-        """Discord edit 처리 — revision row INSERT + 원본 superseded."""
+        """Discord edit 처리 — revision INSERT + 원본 superseded. 단일 트랜잭션.
+
+        Idempotency:
+        - 같은 (revision_of, content_hash) 조합은 UNIQUE 인덱스로 INSERT OR IGNORE
+        - tombstoned 원본에 대한 edit이 와도 revision row는 만들되 lifecycle 변경 ❌ (이미 superseded)
+        """
         orig = await self._db.fetchone("SELECT * FROM conversations WHERE id=?", (original_id,))
         if not orig:
             raise ValueError(f"unknown original_id={original_id}")
-        await self._db.execute(
-            "INSERT INTO conversations (id, task_id, channel_id, agent_id, user_id, project_id, "
-            "guild_id, status, ts, content, content_hash, redacted, revision_of, trust_level) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                new_id, orig["task_id"], orig["channel_id"], orig["agent_id"], orig["user_id"],
-                orig["project_id"], orig["guild_id"], orig["status"], ts, new_content,
-                new_content_hash, 0, original_id, orig["trust_level"],
-            ),
+        # 중복 edit 이벤트: 같은 (original, content_hash) 조합 이미 존재 시 no-op
+        existing = await self._db.fetchone(
+            "SELECT id FROM conversations WHERE revision_of=? AND content_hash=?",
+            (original_id, new_content_hash),
         )
-        cur = await self.current_state(original_id)
-        if cur and cur not in {MessageState.SUPERSEDED, MessageState.FAILED, MessageState.ABORTED}:
-            await self.transition(original_id, MessageState.SUPERSEDED)
-        await self.transition(new_id, MessageState.RECEIVED)
+        if existing:
+            return  # idempotent
+
+        # 원본의 다음 edit_seq 계산
+        seq_row = await self._db.fetchone(
+            "SELECT COALESCE(MAX(edit_seq), 0) AS s FROM conversations WHERE revision_of=?",
+            (original_id,),
+        )
+        next_seq = (seq_row["s"] if seq_row else 0) + 1
+
+        # tombstone 존재 → 순서 역전 (delete가 먼저)
+        tomb = await self._db.fetchone(
+            "SELECT message_id FROM tombstones WHERE message_id=?", (original_id,)
+        )
+        # 단일 트랜잭션으로 묶기
+        await self._db.execute("BEGIN")
+        try:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO conversations (id, task_id, channel_id, agent_id, user_id, project_id, "
+                "guild_id, status, ts, content, content_hash, redacted, revision_of, edit_seq, trust_level) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    new_id, orig["task_id"], orig["channel_id"], orig["agent_id"], orig["user_id"],
+                    orig["project_id"], orig["guild_id"], orig["status"], ts, new_content,
+                    new_content_hash, 0, original_id, next_seq, orig["trust_level"],
+                ),
+            )
+            if tomb is None:
+                cur = await self.current_state(original_id)
+                if cur and cur not in {MessageState.SUPERSEDED, MessageState.FAILED, MessageState.ABORTED}:
+                    await self.transition(original_id, MessageState.SUPERSEDED)
+                await self.transition(new_id, MessageState.RECEIVED)
+            # tombstone이 있으면 lifecycle 변경 안 함 (이미 superseded 상태)
+            await self._db.execute("COMMIT")
+        except Exception:
+            await self._db.execute("ROLLBACK")
+            raise
 
     async def handle_delete(self, message_id: str, reason: str = "discord_delete") -> None:
-        await self._db.execute(
-            "INSERT OR IGNORE INTO tombstones (message_id, deleted_at, reason) VALUES (?,?,?)",
-            (message_id, int(time.time()), reason),
-        )
-        cur = await self.current_state(message_id)
-        if cur and cur not in {MessageState.SUPERSEDED, MessageState.FAILED, MessageState.ABORTED}:
-            await self.transition(message_id, MessageState.SUPERSEDED)
+        """Discord delete 처리 — tombstones INSERT OR IGNORE + 원본 superseded. Idempotent."""
+        await self._db.execute("BEGIN")
+        try:
+            await self._db.execute(
+                "INSERT OR IGNORE INTO tombstones (message_id, deleted_at, reason) VALUES (?,?,?)",
+                (message_id, int(time.time()), reason),
+            )
+            cur = await self.current_state(message_id)
+            if cur and cur not in {MessageState.SUPERSEDED, MessageState.FAILED, MessageState.ABORTED}:
+                await self.transition(message_id, MessageState.SUPERSEDED)
+            await self._db.execute("COMMIT")
+        except Exception:
+            await self._db.execute("ROLLBACK")
+            raise
 ```
 
 - [ ] **Step 3**: 테스트 실행
@@ -1538,16 +1727,40 @@ async def test_dispatch_tool_enqueues_dispatch_item(link, aqm, db):
     item = await aqm._queues["coder"].get()
     assert item.task_id == "T-1"
 
-async def test_ratify_tool_appends_decision_idempotent(link, db, tmp_path):
+async def test_ratify_tool_appends_decision_idempotent_within_session(link, db, tmp_path):
     link._decisions_md = tmp_path / "decisions.md"
     link._decisions_md.write_text("# Decisions\n")
     d1 = await link.ratify(task_id="T-1", project_id="proj", scope="task",
                           body_md="안1 채택", expires_at=None, supersedes=None)
     d2 = await link.ratify(task_id="T-1", project_id="proj", scope="task",
                           body_md="안1 채택", expires_at=None, supersedes=None)
-    assert d1 == d2  # idempotent
+    assert d1 == d2
     rows = await db.fetchall("SELECT id FROM decisions_index")
     assert len(rows) == 1
+
+async def test_ratify_idempotent_across_time(link, db, tmp_path):
+    """동일 logical decision은 시간 흘러도 같은 id (운영 retry 시 중복 ❌)."""
+    link._decisions_md = tmp_path / "decisions.md"
+    link._decisions_md.write_text("# Decisions\n")
+    d1 = await link.ratify(task_id="T-2", project_id="p", scope="task",
+                          body_md="안2 채택", expires_at=None, supersedes=None)
+    # 시간 차이를 시뮬: 직접 DB에서 ratified_at 옛날로 변경하고 다시 ratify
+    import time as _t
+    await db.execute("UPDATE decisions_index SET ratified_at=? WHERE id=?", (_t.time() - 7200, d1))
+    d2 = await link.ratify(task_id="T-2", project_id="p", scope="task",
+                          body_md="안2 채택", expires_at=None, supersedes=None)
+    assert d1 == d2  # 시간 무관 동일 id
+    rows = await db.fetchall("SELECT id FROM decisions_index WHERE task_id='T-2'")
+    assert len(rows) == 1
+
+async def test_ratify_different_body_yields_different_id(link, db, tmp_path):
+    link._decisions_md = tmp_path / "decisions.md"
+    link._decisions_md.write_text("# Decisions\n")
+    d1 = await link.ratify(task_id="T-3", project_id="p", scope="task",
+                          body_md="version A", expires_at=None, supersedes=None)
+    d2 = await link.ratify(task_id="T-3", project_id="p", scope="task",
+                          body_md="version B", expires_at=None, supersedes=None)
+    assert d1 != d2
 ```
 
 - [ ] **Step 2**: `bridge/manager_link.py`
@@ -1627,18 +1840,19 @@ class ManagerLink:
         expires_at: int | None,
         supersedes: str | None,
     ) -> str:
-        ratified_at = int(time.time())
-        # idempotent decision_id
-        digest = hashlib.sha256(f"{task_id}|{ratified_at // 60}|{body_md}".encode()).hexdigest()[:12]
+        """T3 ratify — content 기반 idempotent decision_id (시간 의존 ❌)."""
+        # ratified_at은 ID에 포함 ❌. 동일 logical decision은 언제 retry 해도 같은 id.
+        idempotency_input = f"{task_id}|{project_id}|{scope}|{supersedes or ''}|{body_md}"
+        digest = hashlib.sha256(idempotency_input.encode()).hexdigest()[:12]
         decision_id = f"D-{digest}"
 
         existing = await self._db.fetchone(
             "SELECT id FROM decisions_index WHERE id=?", (decision_id,)
         )
         if existing:
-            return decision_id
+            return decision_id  # 이미 ratify 완료. 시간 흘러도 동일 id 반환
 
-        # decisions.md append
+        ratified_at = int(time.time())
         if self._decisions_md:
             entry = (
                 f"\n---\n"
@@ -2031,12 +2245,14 @@ class DispatchHandler:
 
     async def handle(self, item: DispatchItem) -> None:
         session_gen = self._agent.generation
+        # 핵심: assembled_prompt를 lifecycle에 저장 → bridge restart 시 정확한 prompt로 재시작
         await self.lcm.transition(
             item.message_id,
             MessageState.SENT_TO_AGENT,
             agent_id=self._agent._session_name,
             session_gen=session_gen,
-            capture_offset_start=self._agent.dispatch.__self__.pane and 0,  # set inside dispatch
+            capture_offset_start=0,  # 성능 hint, scan_dispatch_window가 fallback함
+            assembled_prompt=item.prompt,
         )
         result = await self._agent.dispatch(
             task_id=item.task_id,
@@ -2332,23 +2548,40 @@ import time
 from bridge.replay import replay_on_startup
 from bridge.lifecycle import LifecycleManager, MessageState
 
-async def test_queued_messages_re_enqueued(db, aqm):
+async def test_replay_uses_assembled_prompt_not_content(db, aqm):
+    """Critical: replay는 assembled_prompt(T3+cited+UNTRUSTED 포함)를 사용해야지
+    conversations.content(manager 평문 instruction)를 쓰면 안 됨."""
     lcm = LifecycleManager(db)
     await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
-                     ("m-q", "T-1", "c-coder", "manager", "proj", "manager_summary", 1, "yo", "h"))
+                     ("m-q", "T-1", "c-coder", "manager", "proj", "manager_summary", 1, "raw instruction", "h"))
     await lcm.transition("m-q", MessageState.RECEIVED)
-    await lcm.transition("m-q", MessageState.QUEUED, agent_id="coder")
-    aqm._queues["coder"]  # ensure exists
+    full_prompt = "<<AGENT_DISPATCH ...>>\n[T3]\n[cited]\nUNTRUSTED...\n<<AGENT_DONE...>>"
+    await lcm.transition("m-q", MessageState.QUEUED, agent_id="coder", assembled_prompt=full_prompt)
+
     await replay_on_startup(db, lcm, aqm)
-    assert aqm._queues["coder"].qsize() == 1
+    item = await aqm._queues["coder"].get()
+    assert item.prompt == full_prompt  # raw instruction이 아니라 assembled prompt
+
+async def test_replay_drops_queued_without_assembled_prompt(db, aqm):
+    """assembled_prompt가 없는 queued는 폐기 (재시작 직전 부분 적용 crash 케이스)."""
+    lcm = LifecycleManager(db)
+    await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+                     ("m-no-p", "T", "c", "manager", "p", "manager_summary", 1, "x", "h"))
+    await lcm.transition("m-no-p", MessageState.RECEIVED)
+    await lcm.transition("m-no-p", MessageState.QUEUED, agent_id="coder")  # no assembled_prompt
+    await replay_on_startup(db, lcm, aqm)
+    state = await db.fetchone("SELECT state, error FROM message_lifecycle WHERE message_id=?", ("m-no-p",))
+    assert state["state"] == "failed"
+    assert state["error"] == "replay_no_prompt"
+    assert aqm._queues["coder"].qsize() == 0
 
 async def test_sent_to_agent_old_marked_failed(db, aqm):
     lcm = LifecycleManager(db)
     await db.execute("INSERT INTO conversations (id, task_id, channel_id, agent_id, project_id, status, ts, content, content_hash) VALUES (?,?,?,?,?,?,?,?,?)",
                      ("m-s", "T-1", "c-coder", "manager", "proj", "manager_summary", 1, "yo", "h"))
     await lcm.transition("m-s", MessageState.RECEIVED)
-    await lcm.transition("m-s", MessageState.QUEUED, agent_id="coder")
-    old_sent = int(time.time()) - 31 * 60  # 31분 전
+    await lcm.transition("m-s", MessageState.QUEUED, agent_id="coder", assembled_prompt="P")
+    old_sent = int(time.time()) - 31 * 60
     await lcm.transition("m-s", MessageState.SENT_TO_AGENT, sent_at=old_sent)
     await replay_on_startup(db, lcm, aqm)
     state = await db.fetchone("SELECT state FROM message_lifecycle WHERE message_id=?", ("m-s",))
@@ -2374,8 +2607,15 @@ DISPATCH_TIMEOUT_S = 30 * 60
 
 
 async def replay_on_startup(db: Database, lcm: LifecycleManager, aqm: AgentQueueManager) -> None:
+    """Bridge crash 후 재시작 — message_lifecycle 기반 복원.
+
+    중요: assembled_prompt를 lifecycle에서 그대로 가져와 사용한다.
+    conversations.content는 manager의 instruction일 뿐 실제 dispatch된 prompt가 아니므로
+    그걸로 재시작하면 T3/cited/UNTRUSTED 컨텍스트가 모두 사라진다.
+    """
     rows = await db.fetchall(
-        "SELECT ml.message_id, ml.state, ml.agent_id, ml.sent_at, c.task_id, c.content "
+        "SELECT ml.message_id, ml.state, ml.agent_id, ml.sent_at, ml.assembled_prompt, "
+        "c.task_id, c.content "
         "FROM message_lifecycle ml JOIN conversations c ON c.id = ml.message_id "
         "WHERE ml.state IN ('queued','sent_to_agent')"
     )
@@ -2384,17 +2624,31 @@ async def replay_on_startup(db: Database, lcm: LifecycleManager, aqm: AgentQueue
         mid = r["message_id"]
         state = r["state"]
         agent = r["agent_id"]
-        if state == "queued" and agent in aqm._queues:
-            await aqm.put(agent, DispatchItem(task_id=r["task_id"], message_id=mid, prompt=r["content"]))
-            logger.info("replay: re-enqueued %s for %s", mid, agent)
+        prompt = r["assembled_prompt"]
+
+        if state == "queued":
+            if not prompt:
+                # queued 상태면 assembled_prompt가 아직 없을 수 있음 — manager가 dispatch tool
+                # 호출 직후 INSERT한 직후 crash 시. content_loss 카운터 emit + 폐기.
+                logger.warning("replay: queued %s missing assembled_prompt — drop", mid)
+                await lcm.transition(mid, MessageState.FAILED, error="replay_no_prompt")
+                # events 모듈 있으면 emit C5
+                continue
+            if agent in aqm._queues:
+                await aqm.put(agent, DispatchItem(task_id=r["task_id"], message_id=mid, prompt=prompt))
+                logger.info("replay: re-enqueued %s for %s", mid, agent)
         elif state == "sent_to_agent":
+            if not prompt:
+                logger.error("replay: sent_to_agent %s missing assembled_prompt — fail", mid)
+                await lcm.transition(mid, MessageState.FAILED, error="replay_no_prompt")
+                continue
             if r["sent_at"] is None or (now - r["sent_at"]) > DISPATCH_TIMEOUT_S:
                 await lcm.transition(mid, MessageState.FAILED, error="replay_timeout")
                 logger.warning("replay: marked %s as failed (timeout)", mid)
             else:
-                # capture_offset 기반 sentinel 재 wait는 dispatch handler가 다시 처리하도록 queue로 재투입
-                await aqm.put(agent, DispatchItem(task_id=r["task_id"], message_id=mid, prompt=r["content"]))
-                logger.info("replay: resumed %s for %s", mid, agent)
+                # 정확한 prompt로 재투입
+                await aqm.put(agent, DispatchItem(task_id=r["task_id"], message_id=mid, prompt=prompt))
+                logger.info("replay: resumed %s for %s with original prompt", mid, agent)
 ```
 
 - [ ] **Step 3**: 테스트 실행
@@ -2798,6 +3052,19 @@ git commit -m "feat(scripts): audit-secrets — gitleaks scan of DB + logs"
 git add docs/dogfooding/
 git commit -m "docs: 1주 dogfooding metric + retro"
 ```
+
+---
+
+## Plan v1.1 — 6대 risk 보강 변경사항
+
+| Risk | 적용 위치 | 변경 |
+|---|---|---|
+| 1. bracketed paste 보안 오해 | Task 1.1 | docstring/test 이름 "전송 무결성"으로. "보안" 표현 제거 |
+| 2. capture offset 흔들림 | Task 1.1, 1.2 | begin/end 마커 페어 매칭 (`scan_dispatch_window`). offset은 hint, fallback full scrollback |
+| 3. ratify 시간 의존 idempotency | Task 3.3 | hash input에서 `ratified_at` 제거 → `task_id\|project_id\|scope\|supersedes\|body_md`. 시간 무관 동일 id 테스트 추가 |
+| 4. replay가 assembled_prompt 잃음 | Task 2.1 schema, 2.3 handler, 5.2 replay | `message_lifecycle.assembled_prompt` 컬럼 추가. dispatch 시 INSERT, replay 시 사용. 누락 시 fail |
+| 5. edit/delete 중복/순서 역전 | Task 2.1 schema, 2.2 lifecycle | `edit_seq` + UNIQUE(`revision_of`, `content_hash`). handle_edit/delete를 BEGIN/COMMIT 단일 txn. 중복 이벤트 + 순서 역전 테스트 4개 추가 |
+| 6. cat 기반 테스트 한계 | Task 1.3 | spike를 **M2 진입 HARD GATE**로. begin/end 둘 다 측정. miss ≥ 2/10 시 wrapper script fallback이 M1.5 task로 추가되어야 M2 진행 |
 
 ---
 
