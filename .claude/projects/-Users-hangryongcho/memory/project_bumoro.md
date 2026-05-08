@@ -1,123 +1,145 @@
 ---
 name: project_bumoro
-description: 부모로(Bumoro) 프로젝트 현황 — Next.js 15 임신·출산·육아 정부지원금 매칭 서비스. Phase 1 개발 전 데이터 조사 완료, benefits 스키마 합의, 매칭 로직 설계 완료. 미완료: Supabase 마이그레이션 파일·임포트 파이프라인·매칭 API 코드
+description: 부모로(Bumoro) 임신·출산·육아 정부지원금 매칭+시점알림 웹앱. Next.js 15+Supabase, 4명 사이드, 6주 alpha. **2026-05-09 grill 종료 — 18개 결정 + 도메인 용어 + ADR 0001~0003 완료. 다음=검증 phase 13.4 Core 3개 1차 출처 verification**. 산출물=`/Users/hangryongcho/bumoro/{PRD,GRILL-LOG,CONTEXT}.md` + `docs/adr/0001~0003`. 워킹디렉토리=`/Users/hangryongcho/bumoro`
 type: project
 originSessionId: c523f95f-24db-4366-9345-08925795ebf9
 ---
+
 # 부모로 (Bumoro) — 프로젝트 현황
 
-**Why:** 임신·출산·육아 정부지원금 자동 매칭 + 콘텐츠 하이브리드 서비스. Phase 1(M1~3) 개발 시작 전 데이터 조사 + 스키마 설계 단계.
+**Why:** 임신·출산·육아 정부지원금 자동 매칭 + 시점 알림 웹앱. 부모가 자기 정보 1회 입력 → 시점에 받을 수 있는 모든 혜택 자동 알림. 4명 사이드, 6주 alpha 윈도우.
 
-**How to apply:** Phase 1 개발 시 아래 합의 스키마와 데이터 현황 참고. 매칭 로직은 자체 Supabase SQL 필터링(외부 엔진 불필요).
+**How to apply:** 다음 세션에서 이어가려면 `/Users/hangryongcho/bumoro/` 워킹디렉토리에서 아래 진입점 파일 순서대로 읽고 다음 액션부터 시작.
 
 ---
 
-## 기술 스택
+## 진입점 (resume 시 읽을 순서)
+
+| # | 파일 | 무엇 |
+|---|------|------|
+| 1 | `bumoro/CONTEXT.md` (651줄) | 도메인 용어 사전. entity·verb·enum·snapshot 패턴. 모든 코드·문서가 따라야 할 canonical |
+| 2 | `bumoro/GRILL-LOG.md` (557줄) | grill-me 18개 결정 + Codex 5회 보강 + alpha cut + 검증 phase 우선순위 |
+| 3 | `bumoro/PRD.md` | 제품 정의 (Section 3 Positioning + Section 5 소득 옵션 반영) |
+| 4 | `bumoro/docs/adr/0001~0003` | hard-to-reverse 결정 3개 |
+| 5 | `bumoro/research/` (untracked) | 사전 데이터 조사 (ws1~14, DATA-COLLECTION-PLAN, REPORT-FINAL). API CSV 6,806행 + 서울 25구 크롤링 |
+
+---
+
+## 기술 스택 (확정)
+
 - Next.js 15 (App Router) + TypeScript strict + Tailwind + shadcn/ui
-- Supabase (DB + Auth + Storage) + Resend + Vercel
-- 워킹 디렉토리: `/Users/hangryongcho/bumoro-project`
+- Supabase (DB + Auth + Storage + RLS + pg_cron) + Resend + Vercel
+- LLM = Claude Sonnet 4.6 시작, monitor 후 Haiku 4.5 다운그레이드 (단순 카테고리)
 
 ---
 
-## 데이터 조사 현황 (2026-05-08 완료)
+## 핵심 아키텍처 (CONTEXT.md 요약)
 
-### Source 1: API 수집
-- 파일: `data-samples/normalized-analysis/normalized-pregnancy-birth-childcare-policies.csv`
-- 6,806행 39컬럼 (data.go.kr local_welfare/national_welfare/gov24 API)
-- 목록만 1,611건 → matchable=false로 임포트 예정
+**Entity:** Benefit / User / Child / Spouse_info / Source / **source_fetches** (raw_snapshots rename, ADR-0002) / benefit_sources / User_benefit / Notification
 
-### Source 2: 서울 25구 크롤링
-- 파일: `data-samples/seoul-research/seoul-25gu-birth-benefits.md`
-- 서울 전 25개구 출산장려금 전수조사 완료 (2026-05-07 초기 + 2026-05-08 보완)
-- 주요 발견:
-  - 서초구 출산장려금 **2022년 폐지 확정** (seocho.newstool.co.kr 근거)
-  - 은평구 현금 0원, 둘째이상 출산용품교환권 15만원(비현금)
-  - 강서구 공식 URL = `gangseo.seoul.kr` (gangseo.go.kr 아님)
-  - 미확인: 구로구·도봉구·강북구 (추가 조사 필요)
+**3-tier:**
+- **Phrase**: legal_phrase / admin_phrase / parent_phrase (ADR-0001)
+- **Verify timing**: source_checked_at / content_verified_at / effective_date
 
----
+**Enum:**
+- policy_status: announced | active | deprecated (3-state, 반자동 전환)
+- match_tier: green (카드 노출) | yellow (nudge만)
+- Role: user | curator | admin (+service_role 외부)
+- Notification kind: weekly_digest | urgent_d7 | urgent_d1 | onboarding (+ consent_renewal beta)
+- Consent type: terms_of_service | privacy_policy | sensitive_info | email_marketing | external_share
 
-## 합의된 benefits 스키마
+**Snapshot 패턴 (envelope):** schema_version + captured_at + source_entity_type/id + source_version + data (whitelist) + hash. user_snapshot은 `income_band` ('low'|'mid'|'high'), 원소득값 freeze 금지
 
-```sql
-benefits (
-  id uuid,
-  external_id text,          -- API source_id
-  dedupe_key text nullable,  -- Phase 1 nullable, 추후 canonical
-  source_kind text,          -- api | crawl | merged
-  region_code text,          -- 행정구역코드 5자리 (강남구=11680, 서울=11, 전국=KR)
-  scope text,                -- sigungu | sido | national
-  title, summary, target_text, eligibility_text text,
-  support_type text,
-  matchable boolean,         -- false = 목록만, 매칭 제외
-  relevance_score smallint,
-  cond_pregnant bool,
-  cond_birth_adoption bool,
-  cond_multichild bool,
-  cond_single_parent bool,
-  cond_age_start_month int,
-  cond_age_end_month int,
-  income_min_pct int,        -- 소득 하한 (기준중위소득 %)
-  income_max_pct int,        -- 소득 상한
-  amount_tiers jsonb,        -- [{tier, amount_krw, unit}]
-  deadline date,
-  online_apply_url, detail_url, source_url text
-)
-
-regions (
-  code text PK,              -- 5자리 행정구역코드
-  name text,
-  level text,                -- sigungu | sido | national
-  parent_code text,
-  aliases text[]
-)
-```
+**Verbs (ADR-0003):** RPC 11개(권한·감사·트랜잭션) + TS service 6개(외부 API·orchestration). `match` → `evaluate_benefit_match`로 rename. `is_eligible`은 internal helper만.
 
 ---
 
-## 매칭 로직 (합의 완료, 코드 미작성)
+## Alpha scope (Codex 통합 검토 후 cut됨)
 
-```sql
-SELECT *,
-  (cond_pregnant::int + cond_multichild::int + ...) as match_score
-FROM benefits
-WHERE matchable = true
-  AND (region_code = $user_region OR scope IN ('sido','national'))
-  AND (NOT cond_pregnant OR $is_pregnant)
-  AND (NOT cond_multichild OR $child_count >= 2)
-  AND (income_max_pct IS NULL OR $income_pct <= income_max_pct)
-ORDER BY match_score DESC, relevance_score DESC
-```
+**Alpha = "검증된 소수 정책을 정확히 매칭 + 안전하게 메일 발송" 제품** (자동 데이터 파이프라인 X)
 
-- 외부 엔진(OpenFisca 등) 불필요 — Supabase SQL 필터로 충분 (Claude + Codex 일치)
-- UX 참고: ACCESS NYC (github.com/CityOfNewYork/ACCESS-NYC)
-- Rule schema 참고: EligibilityRules.org
+**핵심 4개:**
+1. 13.4 1차 출처 검증 (Core 3개)
+2. admin 검수 워크플로 (source_fetches → approve → benefits)
+3. 매칭 audit log + render snapshot
+4. 메일 안전장치 (bounce/unsubscribe/재시도)
+
+**Core 후보 cap = 3개:** 첫만남이용권 + 부모급여 0세 + 부모급여 1세 (자격 단순+전국+잘못 안내 risk critical)
+
+**Beta로 미룬 것:**
+- API CSV 6,806행 전체 import (alpha는 수기 검증 정책 중심)
+- 서울 25구 markdown 전수 import (alpha 1~3구만)
+- terminology_rules 자동 lookup (alpha는 benefit별 렌더 문구 직접 저장)
+- normalized_hash diff/history
+- 자동 cron (변경감지·익명화·dead link)
+- yellow tier nudge
 
 ---
 
-## Grill-me 결정 (2026-05-08)
+## 검증 phase 우선순위 (Critical Path, 다음 액션)
 
-### Positioning rule (drift 방지)
-- 핵심 axis = 출생일자 + 거주지역. 소득은 **옵션 입력**.
-- 소득 미입력 시 소득무관 정책(부모급여·첫만남·양육수당·산후조리경비·교통비)만 매칭. 입력 시 소득 조건부 정책 추가.
-- ws8의 "최대 1,790만 서울 무주택 중저소득"은 케이스 max, leading hook 아님. 마케팅 카피는 모든 부모 대상 임팩트(60일 소급 100만 등)로.
-- "저소득 서비스" 아님. 모든 부모용 정책 인지·시점 알림 서비스.
+| 순위 | task | 이유 | 담당 |
+|------|------|------|------|
+| **1** | **13.4 Core 3개 1차 출처 verification** (~2일) | seed·룰·claim·LP 기반 | 이호 또는 김현민 |
+| 2 | 13.3 legal 자문 1회 | 민감정보·자녀·retention·disclaimer = DB 설계 직접 영향 | 김현민 |
+| 3 | PRD freeze v1.0 | 13.3/13.4 결과 반영 후 | 4명 합의 |
+| 4 | Conflict 핸드북 1페이지 | 큐레이터 검수 base (자격·금액 vs 신청·운영 layer 분리) | 이호 |
+| 5 | CONTRIBUTORS.md 작성·서명 | 4명 commit 형식 (90일 alpha 약속, 김현민 결정권, D60 retro) | 4명 합의 |
+| 6 | 13.2 competitor 정밀 분석 | 가짜 부모 5케이스 입력 매칭 비교 | 김현민 |
 
-### Q1: 검증 phase 처리 = (B)
-- 13.1 wedge1 1인칭 검증 → ws8 desk 증거(남성 육아휴직 89.8% 미사용, 가족돌봄수당 집행률 56.3%, 무주택 주거비 인지율 1~2%)로 종결. 정량 PASS.
-- 13.2 competitor 정밀 분석 + 13.3 legal 자문 1회는 build 시작 전 1주 박기.
+---
 
-### Q2: alpha launch scope = (A)
-- 1~3개 구 + 중앙정부 핵심 5~10개 (PRD 마일스톤 그대로)
-- 50개 풀가이드 quality bar 우선. PRD Risk #1(데이터 정확도=product death) > 마케팅 reach.
-- 구 후보: **출생아 수 + 정책 다양성** 기준(강서/송파/노원). 무주택 wedge 강조 X. 김현민 파트너십 인맥과 교집합으로 팀 미팅에서 결정.
-- beta(D90~D180)에서 서울 25구 → 경기 31구 확장.
+## Build 전 unknowns (이미 결정된 것, GRILL-LOG 마지막 섹션)
 
-## 남은 작업 (Phase 1 착수 전)
+1. 소득 = 세션 + 명시 동의 후 DB 저장 (ephemeral mode)
+2. 신청 완료 = 사용자가 웹앱 대시보드에서 직접 체크
+3. 지역 변경 = `user_benefits.status='expired'` + 신규 매칭 INSERT, pending notifications 취소
+4. 잘못 안내 = 13.3 legal input + incident 핸드북 (curator 발견 시 admin 알림 + 영향 user 메일 정정 + benefit 일시 비활성화)
+5. 최종 데이터 승인권자 = 김현민
 
-1. **Supabase 마이그레이션 파일** — benefits + regions DDL (`supabase/migrations/`)
-2. **API CSV → benefits 임포트 스크립트** — 6,806건, matchable 플래그 처리
-3. **크롤링 MD → benefits 임포트** — 서울 25구 구별 혜택 구조화
-4. **매칭 API 코드** — `app/api/benefits/match/route.ts`
-5. **user_benefits 연결 테이블** — 사용자 매칭 결과 저장
-6. **amount_tiers 추출 파이프라인** — support_content 텍스트 → 금액 파싱
+---
+
+## 데이터 신뢰도 원칙 (모든 결정의 base)
+
+> **모든 secondary 데이터는 1차 검증 전엔 가정.**
+
+PRD·research·ws 시리즈·API CSV·크롤링 markdown 모두 작성자/소스 정리물 — 1차 출처(공식 안내, 법령, 행정 페이지) 검증 없이 의사결정 base 사용 금지.
+
+| 출처 | 1차 검증 | 사용 가능 |
+|------|---------|----------|
+| 정부 1차 출처 (정부24·법령·보건복지부) | ✅ | 코드 룰·DB seed·알림 |
+| 정부 API CSV / 지자체 크롤링 | ❌ raw | 후보 list, sample 검증 후 |
+| ws10 매핑 / ws8 EV | 🟡 부분 | dictionary seed (1차 페어 검증 후) / 마케팅 reference만 |
+| PRD/플랜 "Core N" | ❌ 작성자 직관 | 후보, 13.4 검증 후 확정 |
+
+**필수:** 모든 정책 row·alias·rule에 `verified_at` + `source_url` 필수. 검증 없는 데이터 = 코드 hardcoding/사용자 노출/알림 발송 금지.
+
+---
+
+## 사이드 4명 (Risk #2 mitigation)
+
+- **조항룡** Tech Lead (풀스택+디자인)
+- **이호** Data Lead (스키마·임포트·LLM 정규화)
+- **윤형** Growth Lead (인스타·맘카페·인터뷰)
+- **김현민** PM/Business Lead (병원·조리원 파트너십·legal·**최종 결정권자**)
+
+90일 alpha commit, D60 retro, 빠질 시 인수인계 1주 (CONTRIBUTORS.md로 박을 예정)
+
+---
+
+## ADR (hard-to-reverse 결정)
+
+- **ADR-0001** 3-tier phrase (legal/admin/parent_phrase)
+- **ADR-0002** Snapshot 패턴 + source_fetches rename (former raw_snapshots)
+- **ADR-0003** Verbs 사전 + RPC vs TS service layer 분리
+
+---
+
+## Git 커밋 history (bumoro repo)
+
+- `8b92091` docs(context): grill-with-docs 도메인 용어 + ADR 0001-0003
+- `4cc439b` docs: grill-me 18개 결정 + PRD positioning 보강
+- `55dba51` chore: initial commit
+
+memory repo:
+- `58fd479` docs(memory): bumoro grill-me 결정 통합
