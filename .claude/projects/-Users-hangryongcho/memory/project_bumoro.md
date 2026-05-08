@@ -95,6 +95,24 @@ ORDER BY match_score DESC, relevance_score DESC
 
 ---
 
+## Grill-me 결정 (2026-05-08)
+
+### Positioning rule (drift 방지)
+- 핵심 axis = 출생일자 + 거주지역. 소득은 **옵션 입력**.
+- 소득 미입력 시 소득무관 정책(부모급여·첫만남·양육수당·산후조리경비·교통비)만 매칭. 입력 시 소득 조건부 정책 추가.
+- ws8의 "최대 1,790만 서울 무주택 중저소득"은 케이스 max, leading hook 아님. 마케팅 카피는 모든 부모 대상 임팩트(60일 소급 100만 등)로.
+- "저소득 서비스" 아님. 모든 부모용 정책 인지·시점 알림 서비스.
+
+### Q1: 검증 phase 처리 = (B)
+- 13.1 wedge1 1인칭 검증 → ws8 desk 증거(남성 육아휴직 89.8% 미사용, 가족돌봄수당 집행률 56.3%, 무주택 주거비 인지율 1~2%)로 종결. 정량 PASS.
+- 13.2 competitor 정밀 분석 + 13.3 legal 자문 1회는 build 시작 전 1주 박기.
+
+### Q2: alpha launch scope = (A)
+- 1~3개 구 + 중앙정부 핵심 5~10개 (PRD 마일스톤 그대로)
+- 50개 풀가이드 quality bar 우선. PRD Risk #1(데이터 정확도=product death) > 마케팅 reach.
+- 구 후보: **출생아 수 + 정책 다양성** 기준(강서/송파/노원). 무주택 wedge 강조 X. 김현민 파트너십 인맥과 교집합으로 팀 미팅에서 결정.
+- beta(D90~D180)에서 서울 25구 → 경기 31구 확장.
+
 ## 남은 작업 (Phase 1 착수 전)
 
 1. **Supabase 마이그레이션 파일** — benefits + regions DDL (`supabase/migrations/`)
