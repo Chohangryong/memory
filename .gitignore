@@ -13,3 +13,6 @@ agent-hub/
 
 # bumoro: separate project repo (4-person team, side project)
 bumoro/
+
+# myautomation: separate local automation repo
+myautomation/
