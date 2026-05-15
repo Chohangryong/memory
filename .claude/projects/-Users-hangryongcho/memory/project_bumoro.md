@@ -155,6 +155,7 @@ PRD·research·ws 시리즈·API CSV·크롤링 markdown 모두 작성자/소스
 **구글 시트 (동작구 28건만 v1):**
 - https://docs.google.com/spreadsheets/d/1WC8OcTfbWq1kycFHm0wozgO2j2Wsi3OwemaLKkj4mDo
 - 나머지 seoul+central은 사용자가 직접 CSV import 예정 (MCP 파일 사이즈 한도)
+- **검증 진행 중 (2026-05-14~)** — 사용자가 시트에서 직접 검증 작업. content_verified_at 채워지면 진척도 확인 가능.
 
 **ADR-0008 (benefit-family-grouping) 그룹핑 4컬럼 = 모두 빈 값** (큐레이터 수동 입력 영역): benefit_family_id / benefit_group_id / parent_benefit_id / excludes_benefit_ids
 
