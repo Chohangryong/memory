@@ -5,7 +5,7 @@
 - [feedback_branch_rule.md](feedback_branch_rule.md) — main 직접 커밋/푸쉬 금지. 모든 작업 dev에서 시작 → dev.bumoro.kr 확인 → main merge. 작업 전 git branch 확인 필수.
 - [feedback_deploy_verify.md](feedback_deploy_verify.md) — dev push 후 dev.bumoro.kr 확인 안 한 채 main merge 금지. layout·auth·인프라 큰 변경일수록 필수. 사용자 명시 승인("바로 main", "운영까지") 있을 때만 연속 배포.
 - [feedback_push_scope.md](feedback_push_scope.md) — 테스트/인프라 파일은 명시적 요청 없으면 push 제외. 로직 변경만 push. 배포와 무관한 파일로 리모트 오염 방지.
-- [project_policy_db_audit.md](project_policy_db_audit.md) — 정책 시드 122건 전수 검증(2026-05-26). slug 18건·discontinued 16건·eligibility 6건·URL 36건 수정. active 106건. generate_seed.py slug 순서 밀림 원인. #44 URL 미확인, 2025년 정책 8건 시행 여부 미확인.
+- [project_policy_db_audit.md](project_policy_db_audit.md) — 정책 DB 검증 1·2차. 2026-05-26 122건 시드 audit + 2026-05-28 rules-first validator + Scrapling URL fetch. 5건 매핑 패치 적용(dev+운영). Follow-up: is_hidden 컬럼·slug데이터 오염 5건 재시드·child_age 오류 5건·validator 룰 개선·#44 URL 미확인.
 - [feedback_seed_onconflict.md](feedback_seed_onconflict.md) — seed_policies.sql ON CONFLICT SET 절에 수정 대상 필드(detail_url, service_status 등) 반드시 포함. 누락 시 기존 row 미갱신.
 - [project_next_task.md](project_next_task.md) — 다음 작업: 유산사산 정책 노출 결정 + 특수대상 온보딩 확장 + 좌우스크롤 운영 캐시 확인
 - [project_perf_optimization.md](project_perf_optimization.md) — 성능최적화(2026-05-28). getUser→getSession 전환(proxy 중복 제거), matchPolicies 병렬화, median_income 1시간 캐시, 온보딩 즉시이동. cold 1.73s→0.38s(78%↓). 새 page.tsx는 getSession 사용 규칙.
