@@ -1,0 +1,18 @@
+- [reference_bumoro_infra.md](reference_bumoro_infra.md) — Vercel 배포, 도메인(bumoro.kr/dev.bumoro.kr), Supabase 운영/개발 분리, 브랜치 전략(main=운영/dev=개발), DNS 설정, 환경변수 목록
+- [project_nextjs16_proxy.md](project_nextjs16_proxy.md) — Next.js 16 middleware→proxy 마이그레이션. Edge Runtime __dirname 에러. serverExternalPackages 무효. Supabase SSR 사용 시 필수.
+- [project_login_redirect.md](project_login_redirect.md) — Next.js App Router 서버 액션 redirect()는 soft navigation → Nav 클라이언트 상태 미갱신. window.location.href 전체 새로고침으로 해결.
+- [project_google_oauth.md](project_google_oauth.md) — 구글 OAuth 3가지 설정: NEXT_PUBLIC_SITE_URL 환경변수 + Supabase Redirect URL + Google Console 리디렉션 URI. 운영/개발 각각 설정 필수.
+- [feedback_branch_rule.md](feedback_branch_rule.md) — main 직접 커밋/푸쉬 금지. 모든 작업 dev에서 시작 → dev.bumoro.kr 확인 → main merge. 작업 전 git branch 확인 필수.
+- [feedback_deploy_verify.md](feedback_deploy_verify.md) — dev push 후 dev.bumoro.kr 확인 안 한 채 main merge 금지. layout·auth·인프라 큰 변경일수록 필수. 사용자 명시 승인("바로 main", "운영까지") 있을 때만 연속 배포.
+- [feedback_push_scope.md](feedback_push_scope.md) — 테스트/인프라 파일은 명시적 요청 없으면 push 제외. 로직 변경만 push. 배포와 무관한 파일로 리모트 오염 방지.
+- [project_policy_db_audit.md](project_policy_db_audit.md) — 정책 시드 122건 전수 검증(2026-05-26). slug 18건·discontinued 16건·eligibility 6건·URL 36건 수정. active 106건. generate_seed.py slug 순서 밀림 원인. #44 URL 미확인, 2025년 정책 8건 시행 여부 미확인.
+- [feedback_seed_onconflict.md](feedback_seed_onconflict.md) — seed_policies.sql ON CONFLICT SET 절에 수정 대상 필드(detail_url, service_status 등) 반드시 포함. 누락 시 기존 row 미갱신.
+- [project_next_task.md](project_next_task.md) — 다음 작업: 유산사산 정책 노출 결정 + 특수대상 온보딩 확장 + 좌우스크롤 운영 캐시 확인
+- [project_perf_optimization.md](project_perf_optimization.md) — 성능최적화(2026-05-28). getUser→getSession 전환(proxy 중복 제거), matchPolicies 병렬화, median_income 1시간 캐시, 온보딩 즉시이동. cold 1.73s→0.38s(78%↓). 새 page.tsx는 getSession 사용 규칙.
+- [project_profile_ux.md](project_profile_ux.md) — 프로필UX(2026-05-28). 랜딩 프로필클릭→/my/profile, 무변경 저장차단(initialSnapshot비교), 토스트피드백(3초), 저장 Promise.all 병렬화, revalidatePath 제거.
+- [project_beta_improvements.md](project_beta_improvements.md) — 베타 개선 완료(2026-05-27). 임신준비중(is_pregnancy_prep) 온보딩+매칭, 자녀 밸리데이션, 소득 건너뛰기, 신청완료/제외(saved→received 직행), 쿼리 병렬화, 스켈레톤 UI, 프로필 다크모드, amount_max 월액 보정 7건, 온보딩 재진입 ?edit=1.
+- [project_life_stage_filtering.md](project_life_stage_filtering.md) — life_stage 필터링 완료(2026-05-27). computeUserLifeStages 자동 추론. UUID 직접 필터(PostgREST nested filter 한계 우회). 만료 CTA 배너. child_3y_plus 5건 보정.
+- [feedback_postgrest_nested_filter.md](feedback_postgrest_nested_filter.md) — PostgREST .in(a.b.code) 2단계 nested filter는 부모 row 미제거. FK ID 직접 필터 필수. Supabase !inner JOIN 한계.
+- [feedback_supabase_db_update.md](feedback_supabase_db_update.md) — DB 시드 반영: supabase db query --linked 사용. anon key RLS 차단. --project-ref 미지원 → link 전환 방식. 운영 반영은 DB 먼저 → 코드 배포.
+- [project_mobile_design_overhaul.md](project_mobile_design_overhaul.md) — 모바일 디자인 감사+수정(2026-05-27). 금액줄바꿈·터치타겟44px·자세히보기nowrap·카드overflow·CTA정렬·로그인후 대시보드우선·taste-skill Double-Bezel. 커밋15건 운영반영.
+- [project_policy_filter_fix.md](project_policy_filter_fix.md) — 정책필터 보정(2026-05-27). 난임→pregnancy_prep, 청년주거/청소년산모/장애인가정 discontinued, is_multiple_birth 컬럼+동일출생일 쌍둥이추론, 테스트51개. 운영+개발 DB 반영.
