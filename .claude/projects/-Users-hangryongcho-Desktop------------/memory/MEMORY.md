@@ -16,3 +16,4 @@
 - [feedback_supabase_db_update.md](feedback_supabase_db_update.md) — DB 시드 반영: supabase db query --linked 사용. anon key RLS 차단. --project-ref 미지원 → link 전환 방식. 운영 반영은 DB 먼저 → 코드 배포.
 - [project_mobile_design_overhaul.md](project_mobile_design_overhaul.md) — 모바일 디자인 감사+수정(2026-05-27). 금액줄바꿈·터치타겟44px·자세히보기nowrap·카드overflow·CTA정렬·로그인후 대시보드우선·taste-skill Double-Bezel. 커밋15건 운영반영.
 - [project_policy_filter_fix.md](project_policy_filter_fix.md) — 정책필터 보정(2026-05-27). 난임→pregnancy_prep, 청년주거/청소년산모/장애인가정 discontinued, is_multiple_birth 컬럼+동일출생일 쌍둥이추론, 테스트51개. 운영+개발 DB 반영.
+- [project_seoul_baby_first_step.md](project_seoul_baby_first_step.md) — 서울아기 건강 첫걸음 사업지역 자치구만 운영(23개 추정). 동작구 row 임시 제거(2026-05-28). 베타 확장 시 영등포·중랑·구로·종로·서초 등 사업지역 자치구별 policy_region 정밀 매핑 필요.
