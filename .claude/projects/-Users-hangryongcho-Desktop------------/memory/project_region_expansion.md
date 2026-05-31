@@ -41,14 +41,16 @@ metadata:
 동작구 sigungu 27건 전수검증(subagent) → 전국/서울 오분류 9건 발견. 사용자 검증·Codex 협의로 정정:
 - **007: 전국사업 6건 sigungu→national** (산후도우미바우처·B형간염주산기·미숙아의료비·엽산철분·고위험임산부 + 발달정밀은004기정정). 보건복지부 사업이 동작구민만 노출되던 버그.
 - **008: 서울/여가부 3건 정정 + slug 변경** — 공영주차장·키즈카페→sido_wide@11(seoul-multi-child-parking-discount·seoul-kids-cafe), 가족센터→national@KR(national-family-center-childcare). **slug도 실제주체 기준 변경**: project_policy_db_audit #8(slug↔scope 불일치, "slug변경 위험"이라 미뤄둔 것)을 **Codex 협의로 해결** — natural-key rename은 **seed_policies.sql 수정 + live migration 한 세트**(seed만 고치면 재시드때 옛slug 부활·중복). seed의 옛 3 region(KR/11/11590)→정확히1개로, 008은 old→new rename(공존방어 DELETE)+region전체삭제후1개+키즈카페 household_type4개삭제+income recipient_required→none(일반가구 누락버그). 재시드 양경로 동일수렴 검증.
-- **검증완료**: 강서구민이 3건 다 봄, 키즈카페 일반가구 매칭(household 0·income none). 동작구 자체사업 27→**21**(진짜 자체만). npm test 79/79. push 3d87e8c.
+- **검증완료**: 강서구민이 3건 다 봄, 키즈카페 일반가구 매칭(household 0·income none). 동작구 자체사업 27→**20**(진짜 자체만, 009 발달정밀까지 빠져 21→20). npm test 79/79.
+- **009 발달정밀 누락버그 정정**: 마이그004가 발달정밀 slug를 'dongjak-developmental-screening'으로 **오추측**(실제 'dongjak-child-development-test')해 정정 누락 + 007은 "004가 했다" 가정해 제외 → dev·운영 양쪽 발달정밀이 sigungu로 남아있던 버그(메모리 #3 "slug 추측금지·현재값 SELECT" 실증, 운영 검증 중 발견). 009로 national 정정. **seed_policies.sql도 정정**: 004/007/009 national 전환한 전국사업 8건(산후도우미·B형간염·미숙아·엽산철분·고위험임산부·발달정밀·대사이상·난청)의 region KR/11/11590 3행→KR 1행(재시드시 옛sigungu 부활방지). 커밋 32d0db3.
 - **slug 변경 안전성 코드검증**: canonical_slug는 app/components/lib에서 SELECT만(분기·매칭·라우팅 무사용). 하드코딩은 data/validation 스냅샷뿐(앱 미사용). 매칭은 region_id FK직접필터(.in(region_id))라 단일 region 행 안전(feedback_postgrest_nested_filter 우려 해소).
 
 ## 보류(사용자 결정, 이번 미정정)
 - 🟡 의심이나 보류: 없음(3건 다 정정함). ⚪ 애매2건 동작구유지: dongjak-prenatal-helper(임신맘도우미 — 구의회 회의록"우리구 사업"=자체 확인), dongjak-preconception-health-screening(예비부부건강검진 — 구의회"연1회 무료"=동작구보건소 자체). 둘 다 sigungu 유지 타당(공식+준공식).
 
-## 마이그레이션 전체 목록 (운영 적용 대상, dev 완료·운영 미반영)
-001 강서region·002 강서4건·003 강서URL정정·004 영유아4종national+난청제거·006 송파region+2건·007 동작전국6건·008 동작서울/여가부3건+slug변경. (005 취소). **운영 반영은 사용자 직접**(권한시스템이 운영DB 차단). 순서: 운영DB 마이그 먼저(supabase link 운영ref→ -f 순차→dev복귀) → main merge. ⚠️ 마이그 추적테이블 없음=파일존재≠적용, 양쪽 SELECT 검증(project_policy_db_audit #3 교훈).
+## ✅ 운영(bumoro.kr) 반영 완료 (2026-05-31)
+마이그 001·002·003·004·006·007·008·**009** 운영DB(bumoro_MVP) 순차 적용·검증(005취소). dev·운영 동작구 자체사업 **20건 diff 0** 확인. main ff merge+push(32d0db3, bumoro.kr HTTP200). 순서 준수: 운영DB먼저(supabase link 운영ref→-f 순차→dev복귀)→main배포. ⚠️ 마이그 추적테이블 없음=파일존재≠적용, 양쪽 SELECT 검증(project_policy_db_audit #3 교훈)으로 발달정밀 누락 발견·009 정정.
+- 최종 지역 자체사업: 동작구20·강서구3·송파구1. 운영=dev 일치.
 
 ## 남은 follow-up
 - **무료 대상 강조 표시 기능(향후 업데이트, 사용자 보류 2026-05-31)**: 키즈카페처럼 "일반 유료 + 특정그룹 무료" 정책에서 해당자에게 "당신은 무료" 강조. **현 구조 불가**: `policy_household_type`은 matchesEligibility(lib/queries/policies.ts:185)에서 **매칭 차단**용(가구유형 안 맞으면 return false) → 강조(모두 노출+해당자 표시)와 의미 충돌. 신설 시 household_type을 차단용이 아닌 **표시용 메타**로 분리 설계 필요(예: requirement_type='free_eligible' vs 'required' 구분, 표시 컴포넌트에서만 읽기). 현재 무료대상 정보는 모달 raw_target_text(benefit-modal:237)에 텍스트로 노출 중이라 기능상 문제없음.
