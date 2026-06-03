@@ -1,6 +1,6 @@
 ---
 name: project-bumoro-db-design
-description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev 완료(06-03, mig004~007, prod 미반영). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비"
+description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev+prod 완료(06-03, mig004~007, slug기준 변환됨). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비"
 metadata: 
   node_type: memory
   type: project
@@ -46,13 +46,13 @@ metadata:
 |---|---|---|
 | `update_url_only` | 58 unique | ✅ **dev+prod 적용 완료 (2026-06-02)** |
 | `deactivate_review` | 61 unique | ✅ **dev+prod paused 적용 완료 (2026-06-02)** |
-| `update_url_and_policy_fields_review` | 18건(시트 최종본) | ✅ **dev 적용 완료 (2026-06-03, mig 004)** |
-| `dedupe_or_scope_review` | 13건 | ✅ **전건 '유지'(중복 0) — dev 보강 적용 (mig 005)** |
-| `insert_new_policy_review` | 2건 | ✅ **광진 백일돌컷 등록 / 양천 skip(허위) (mig 007)** |
-| `hold_url_manual_check` | 3건 | ✅ **크롤링 확정 후 적용 (mig 006)** |
+| `update_url_and_policy_fields_review` | 18건(시트 최종본) | ✅ **dev+prod 완료 (2026-06-03, mig 004)** |
+| `dedupe_or_scope_review` | 13건 | ✅ **전건 '유지'(중복 0) — dev+prod 보강 (mig 005)** |
+| `insert_new_policy_review` | 2건 | ✅ **광진 백일돌컷 등록(dev+prod) / 양천 skip(허위) (mig 007)** |
+| `hold_url_manual_check` | 3건 | ✅ **크롤링 확정 후 dev+prod (mig 006)** |
 | `no_change` | ~45건 | — |
 
-> **2~5단계 dev 적용 완료(2026-06-03):** mig 004(정보수정18)·005(유지13보강)·006(보류URL3)·007(yongsan paused+광진신규). 004~006은 **UUID 기준이라 dev 전용**, prod는 slug 재작성 필요. 007은 slug/code 기준(yongsan UPDATE만 UUID). **prod 미반영.** 상세 교훈은 본문 하단 '2~5단계 교훈' 참조.
+> **2~5단계 dev+prod 적용 완료(2026-06-03):** mig 004(정보수정18)·005(유지13보강)·006(보류URL3)·007(yongsan paused+광진신규). **최초 UUID 기준으로 작성→dev 적용 후, 재시드/ prod 호환 위해 canonical_slug 기준으로 in-place 변환(commit 654f720)** → dev 드라이런 + prod 드라이런/적용/검증 완료, link dev 복귀. prod 사전점검: 기존 34슬러그 존재·광진신규 0·category service·region 11215 확인 후 적용. 상세 교훈은 본문 하단 '2~5단계 교훈' 참조.
 
 **⚠️ dev/prod UUID 상이:** seed가 `gen_random_uuid()`라 같은 정책도 dev와 prod의 `policy.id`(UUID)가 **다름**. → 환경 간 마이그레이션은 반드시 **`canonical_slug` 기준**으로 작성(UNIQUE 보장). UUID 기준 SQL을 prod에 돌리면 0건 매칭 조용한 no-op. (이번 update_url_only도 UUID→slug 재작성 후 적용)
 
