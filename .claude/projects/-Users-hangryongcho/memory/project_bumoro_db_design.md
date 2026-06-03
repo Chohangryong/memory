@@ -1,6 +1,6 @@
 ---
 name: project-bumoro-db-design
-description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev+prod 완료(06-03, mig004~007, slug기준 변환됨). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비"
+description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev+prod 완료(06-03, mig004~007, slug기준 변환됨). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비. **금액표시(06-03 A·C·B1):** amount_aggregation per_birth=출생아당합산(의도된설계,flip금지)/per_application단일/range_only. lib/amount.ts mode(exact/capped='최대N'/range/none), amount_text상한키워드검사. parse_breakdown정규식 brittle→명시맵migration백필. A가드레일 dev+PR#1대기(main직접푸시 차단), C(mig008 아이돌봄/재산세 데이터오류→range_only) B1(mig009 첫만남 첫째200/둘째+300 등 7건) dev+prod완료. B2태아수=같은날짜자녀 도출 미착수(per_fetus enum필요)"
 metadata: 
   node_type: memory
   type: project
@@ -17,6 +17,24 @@ metadata:
 둘은 폴더도 리포도 다르고, 이 메모리는 `부모로데이터베이스설계` 폴더 작업만 기록합니다.
 
 ---
+
+## 카드 금액 표시 시스템 (2026-06-03 — A·C·B1 작업)
+
+**문제:** breakdown 없는 정책의 `amount_max`(상한)가 카드에 확정액처럼 맨숫자로 찍혀 **과대표시**. 사용자 지적.
+
+**핵심 설계 사실 (다음 세션 혼동 방지):**
+- `amount_aggregation` enum: `per_birth`(출생아당 **합산** — 나이창 충족 born 자녀별 금액 합산, **의도된 설계** spec 2026-05-30, 버그 아님) / `per_application`(child_count 기준 **단일 tier**) / `range_only`("조건별 차등", total=null). ⚠️ 출산축하금을 per_birth→per_application로 "flip"하면 안 됨(설계 되돌림). codex도 확인.
+- `lib/amount.ts:resolveAmountDisplay`가 표시 **mode** 반환: `exact`(breakdown매칭/검증된 단일정액) / `capped`(amount_max 상한 추정→**"최대 N"** 강제) / `range`("조건별 차등") / `none`(amount_text). `amountHeadline(mode,total,text,fmt)` 공통 헬퍼. mode 판정은 DB숫자만 아니라 **amount_text 상한키워드(최대·한도·본인부담·차등 등)까지 검사**(min==max라도 "최대 X"면 capped). codex 리뷰 반영.
+- `generate_seed.py:parse_breakdown` 정규식이 brittle — "{첫째|둘째}[아]? 숫자 만원"·"셋째/넷째 이상"만 매칭. "둘째 이상"·"첫째·둘째"·"세 자녀"·연령(0세/1세)은 **미매칭** → 자동추출 7건뿐. 나머지는 **명시 맵 migration으로 백필**(codex 권고: 정규식 단독 < 명시 맵 + 검증).
+
+**작업 단계 (A·C·B1 완료 / B2 미착수):**
+- **A 가드레일**(코드 `787059b`, 8파일): mode/capped "최대" 라벨. 전 표시면(card·modal·tracking·home) 통일. 테스트38·빌드 통과. → **dev 반영 + PR #1(dev→main) 머지 대기**(main 직접푸시는 안전정책 차단됨). DB변경 없음.
+- **C 데이터오류**(mig `008`): 아이돌봄 max=649만(중위소득 오입력)·동작재산세 max=900만(환급총통계 오입력) → range_only. **dev+prod 적용 완료**.
+- **B1 정확액 백필**(mig `009`): 출생순서 7건 breakdown 명시맵. **첫만남 첫째200만/둘째+300만**, 강남·광진·성동·금천·구로 출생축하금, 강동 다자녀장려금. aggregation 불변. **dev+prod 적용 완료**. ⚠gwangjin(나이창0~18mo)은 합산 엣지 flag.
+- **B2 태아수**(mig `010`enum+`011`data, code `aad777c`): **dev 완료, prod 미반영**. 규칙=출생(예정)일 동일 자녀 2+=다태아(`fetusCount()` 같은날짜 그룹 최대크기, 신규입력 없음). `per_fetus` enum 추가(breakdown birth_order를 태아수 tier로 재해석), pregnancy_due_date를 전 표시면 전달(미출생 쌍둥이). 3건: 건강보험진료비 단태100/다태140, 서대문 임신축하 30/60/90, 엄마아빠택시 12/24만. 자영업자출산급여=다태 표현 모호로 제외. 부모급여(연령차등)·세액공제(row혼재)=설계상 보류(D).
+- **prod 반영 완료(2026-06-03)**: PR #1(dev→main) 머지(merge commit `8d32240`, Vercel success)로 A+B2 코드 bumoro.kr 배포. prod DB에 008·009·010·011 전부 적용·검증. 링크 dev 복귀. ⚠️교훈: per_fetus 정책은 **코드 먼저 배포→DB(011) 나중** 순서 필수(구코드는 per_fetus를 per_application으로 오해해 childCount를 태아수로 오독). main 직접푸시는 차단되나 `gh pr merge`(PR플로우)는 허용됨.
+
+**구코드도 breakdown·range_only는 이미 처리** → prod DB만 반영해도 첫만남 200/300·데이터오류 "조건별차등"은 PR머지 전에도 라이브 적용됨. PR머지가 추가하는 건 "최대" 라벨뿐.
 
 ## 현황 (2026-06-02)
 
