@@ -36,6 +36,20 @@ metadata:
 
 **구코드도 breakdown·range_only는 이미 처리** → prod DB만 반영해도 첫만남 200/300·데이터오류 "조건별차등"은 PR머지 전에도 라이브 적용됨. PR머지가 추가하는 건 "최대" 라벨뿐.
 
+## 카드 UI/콘텐츠 정비 (2026-06-03 후속, dev+prod 완료)
+
+금액 표시(A·B·C·B2) 후 카드 가독성·콘텐츠 전면 정비. 모두 git 커밋 + prod 반영(mig 008~020, 코드는 PR로 main 머지).
+
+- **값 토큰** (`lib/amount-tokens.ts`): 숫자 금액 없는 서비스/현물 정책 헤드라인을 긴 amount_text 대신 짧은 토큰으로(24px 거대화 방지). `valueToken(policy)` = 검토확정 맵 110건(slug→토큰) + 키워드 폴백. ⚠️"무료" 접두어는 제거함(강남 놀이터 1천원 등 유료 정책 오인) → 중립 라벨: 대여·시설 이용·돌봄 지원·접종 지원·검진 지원·교실·강좌·현물 지급·할인·감면·보험 지원·교육·정보·조건별 차등·지원. 무료/유료/회비는 요약·모달이 정확히 안내. 카드는 칩박스 아닌 액센트 plain 텍스트(현금 숫자와 통일).
+- **용어사전 적용** (`lib/glossary.ts`): `simplify(text)` 정규식맵(다태아→쌍둥이 이상, 단태아→아이 1명 출산, 본인부담금→내가 내는 비용, 미숙아→이른둥이, 통상임금→평균 월급 등). 기존엔 모달 description만 적용됐는데 **카드·모달·추적·홈의 title/summary/amount_text까지 전 표시면 적용**(DB 원문 유지, 표시 시 순화). DB엔 "다태아" 등 원문 보존.
+- **toBullets** (`lib/glossary.ts`): 행정 원문(자격요건·신청방법) run-on을 불릿으로. 분할=헤더(지원 제외:)·마커(*○▪)·파이프(|)·인라인 ' - '·문장끝(한글/숫자/괄호+마침표+공백, URL은 마침표 뒤 공백없어 안깨짐). 각 줄 앞 리스트마커(- · •) 제거(•와 - 이중표시 방지). 모달 InfoRow + 금액영역(긴 amount_text)에 적용.
+- **모달 중복제거**: `amount_text==description`(84건)이면 모달 금액영역서 amount_text 생략(상세영역서 1회만).
+- **카드 콘텐츠 정비**(mig 012 high118·015 med40·013 token20): summary 없어 raw description이 잘려 노출되던 것 등 친근체 요약 부여 + 제목 단축. 원문 대조 verify 워크플로로 사실오류 교정(매달→4개월·산모계좌→현금·지어낸 금액/연령 제거 등). active summary 누락 0 달성. ⚠️"빈약 자격요건"(영유아·임산부 등) 상당수는 공식 출처도 단순=정상(보강 불필요).
+- **데이터 정정**: 008(아이돌봄 max=중위소득·동작재산세 max=환급총통계 오입력→range_only), 014(newlywed-housing slug오명명, 실체=육아기 단축급여), 016(자영업자 출산급여 다태=서울추가분 단태90/다태170 per_fetus, A+B통합 중복 C=paused, 코덱스 웹검색), 018·020(예술인·동작 검사류·다태아보험·유아학비 등 "…" 잘림 11건 정부24·동작보건소·umppa 크롤링 보강→truncated 0).
+- 병렬세션 작업(별개): mig 017(cached_child_count 이중카운팅 트리거 제거+백필) · 019(promote_due_births cron). cron은 Vercel env(CRON_SECRET·SUPABASE_SERVICE_ROLE_KEY) 설정해야 활성.
+- ⚠️**배포 교훈**: dev migration 적용 후 prod 누락 드리프트 주의(018 예술인이 prod 미반영이었음→재적용). 코드먼저→DB나중(per_fetus 오독 방지). main 직접푸시 차단→`gh pr merge`. prod 적용 후 항상 `supabase link` dev 복귀.
+- **검증**: 라이브 bumoro.kr `?data=<base64 OnboardingData>`로 로그인 없이 결과페이지 SSR 렌더(공개) → 값 토큰·불릿·순화 실측. 로컬 `npm run dev`+Playwright로 모달 클릭 확인.
+
 ## 현황 (2026-06-02)
 
 **Supabase dev:** lqqcufhfnyubxumryhws (bumoro-dev, Singapore) — 현재 linked
