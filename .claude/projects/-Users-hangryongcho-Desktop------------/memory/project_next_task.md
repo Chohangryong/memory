@@ -1,6 +1,6 @@
 ---
 name: next-task
-description: "다음 작업: 특수대상 온보딩 확장 + taste-skill 카드 변주 + 섹션 배경 구분 + 베타 region 확장 (마스터 파일 준비됨)"
+description: "다음 작업: 모바일 UI/UX 외부리뷰 대조 후속(P0 되돌리기 2건=소득 주버튼·상세 4버튼 자기유발 + ₩취소선·4카드·로그인 구글준비중버튼, doc=docs/validation/mobile-uiux-review-cross-check-2026-06-03.md) + 특수대상(장애·다문화) 온보딩 확장(장애인가정 17건 정밀화) + 결과카드 금액 헤드라인 개선 + 온보딩 URL PII 보안 + taste-skill 카드 변주. ✅베타 region 확장=서울25구 완료(2026-06-01). 서울22 잔여☎: 입양축하금/백일해 scope·미상금액."
 metadata:
   node_type: memory
   type: project
@@ -9,10 +9,20 @@ metadata:
 
 ## 남은 장기 과제
 
-- **특수 대상 온보딩 확장**: 장애인·기초생활·다문화 체크 추가 → disabled/basic_livelihood 정책 활성화
+- **모바일 UI/UX 외부리뷰 대조 후속 (2026-06-03, 🔴 P0)**: HTML 외부리뷰(`부모로 모바일 UIUX 개선안.html`, 5/31 배포前 녹화)를 운영 라이브 실측 대조. 대조표=`docs/validation/mobile-uiux-review-cross-check-2026-06-03.md`. **이미개선 7건**(커스텀드롭다운·세전표기·홈퍼스트뷰·날짜밸리데이션·선택카드채움·다크모드라벨·금액보조문구). **되돌리기 P0 2건(5/26 자기유발)**: ①04-② 소득 빈 상태 채움 주버튼이 "소득 없이 전체 혜택 보기"(onboarding-client.tsx:178 라벨토글)→"내 혜택 확인하기" 고정+건너뛰기 텍스트링크 강등 ②08-① 상세시트 4버튼(바로가기/신청완료/관심없음/나중에, benefit-modal.tsx)→주채움+보조테두리 2버튼. **신규 P0**: 06-① 결과 "예상 지원금 ₩5,231,080"(summary-cards.tsx:10)→"523만 원" 한글단위+히어로화 / 06-② 4카드균등→위계. **로그인**: 09-① "구글로 시작하기(준비 중)" 버튼 숨김 / 09-② 비밀번호찾기 링크. **폴리시**: 01-② 둘러보기 버튼화·03 이모지/버튼위계·05 판정칩 상태별색토큰. **미확인(추가QA)**: 07 리스트 필터칩 가로스크롤·정렬분리·금액단위 / 08-② 모달 제목고정→금액가림. [[project_onboarding_ux]]
+- **특수 대상 온보딩 확장**: 장애인·기초생활·다문화 체크 추가 → disabled/basic_livelihood 정책 활성화. **🔴 시급도↑(2026-06-01)**: 서울22구 장애인가정 출산/양육지원금 17건을 household=disabled 死게이트 회피 위해 household 미부여로 등록(일반에게도 노출). 온보딩 '장애 가구' 질문 추가 시 그 17건에 household_type=disabled 부여 + HOUSEHOLD_TYPE_MAP 매핑하면 정밀화. [[project_seoul22_discovery]]
 - **taste-skill 카드 시각적 변주**: 현재 동일 패턴 반복, 카드별 시각 차별화 필요
 - **섹션 간 배경 구분 개선**: 시각 위계 강화
-- **베타 region 확장**: 동작구 외 지역 추가 시 `data/regions/insert_regions.sql`을 마이그레이션으로 복사. 마스터 데이터 검증 완료(시도 17 + 시군구 261, 행안부 기준). 정책 매핑(policy_region)도 함께 추가 필요.
+- **결과 카드 금액 헤드라인 개선(2026-06-01 발견)**: `amountToText`(lib/amount.ts)가 amount_breakdown 없으면 amount_text를 헤드라인에 안 써서, 금액(amount_min/max) NULL인 정책(유축기·% 환급·무료서비스)이 헤드라인에 "지원"만 표시(상세는 모달). 동작·강서·송파도 동일=기존 동작이라 회귀 아니라 유지 중. 개선하려면 `amount==null→amount_text` fallback(앱 전체 영향, 184 sigungu 일괄 개선). [[project_seoul22_discovery]]
+- ~~**베타 region 확장**~~ → **✅ 서울 25개 자치구 전체 완료(2026-06-01)**. 동작·강서·송파 + 22구 자체사업 148건 운영DB 등록 + `lib/constants.ts` SUPPORTED_SIGUNGU_CODES 25구 확장(온보딩·프로필 화면) 운영 배포. **다음 지역(경기 등) 확장 = 데이터(policy_region)+화면(SUPPORTED) 한 세트.** [[project_seoul22_discovery]] [[project_region_expansion]]
+- **온보딩 결과 URL 개인정보 노출 (보안, 2026-05-31 발견)**: `/result?data=<base64>`가 암호화 아닌 base64라 자녀생년월일·월소득·가구형태가 URL에 평문. 유출경로=히스토리/Vercel로그/Referer헤더(외부 detail_url 클릭)/공유. **타인 DB조회는 불가**(get_result_bootstrap 서버 user.id+RLS)—본인 입력이 URL에 실리는 게 문제. 권고: **Supabase Anonymous Sign-ins**(`signInAnonymously()`)로 비로그인도 익명세션→온보딩데이터 DB저장→result 세션기반전환→URL data제거→정식가입시 linkIdentity 연결(데이터보존). 대안 임시토큰테이블. 최소완화(즉시)=Referrer-Policy:same-origin 헤더+로그 쿼리스트링 마스킹. 상세: `docs/security/onboarding-data-url-pii.md`. 규모=온보딩→result 흐름 전반(별도 spec).
+
+## 서울22 확장 잔여 follow-up (비차단, 운영은 이미 live)
+- **☎ 미상 금액 채우기**: 강동 입학축하금·강남/양천 장애인가정 출산금(조례·사업 존재 확인, 금액만 미공개). needs_review·노출은 됨.
+- **☎ scope 보류 확정**: 입양축하금(중구·구로·금천·은평·종로 = 서울시 200만 대행 vs 구 조례 구비, 확실 sigungu=광진·강북·서대문)·백일해 Tdap(서울 시통일 vs 구별, 감염병관리과 02-2133-7668)·노원 복합(문화상품권/돌사진/작명 별도사업 분리). [[project_seoul22_discovery]]
+- **amount_breakdown JSONB·parent_friendly_copy 백필**: 출생순서 차등(출산금)·UX 카피 미충전분.
+- **임신부 national 태깅 점검**: 임신부 페르소나에 national 5건만 매칭(기존 데이터 life_stage pregnancy 태깅 누락 의심, 서울22 무관).
+- **온보딩 장애 질문 추가**(위 특수대상 확장과 동일) → 장애인가정 17건 household 정밀화.
 
 ## 데이터 일관성 추가 점검 후보
 
