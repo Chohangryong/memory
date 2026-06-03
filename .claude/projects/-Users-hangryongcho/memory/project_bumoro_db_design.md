@@ -1,6 +1,6 @@
 ---
 name: project-bumoro-db-design
-description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 DB 마이그레이션 진행: update_url_only 58 + deactivate_review 61(paused) dev+prod 완료(2026-06-02). 남음: update_url_and_policy 29/dedupe 20/insert 4/hold 3. ⚠️dev·prod UUID 상이→slug기준 마이그레이션, supabase link 전환 런북"
+description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev 완료(06-03, mig004~007, prod 미반영). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비"
 metadata: 
   node_type: memory
   type: project
@@ -46,11 +46,13 @@ metadata:
 |---|---|---|
 | `update_url_only` | 58 unique | ✅ **dev+prod 적용 완료 (2026-06-02)** |
 | `deactivate_review` | 61 unique | ✅ **dev+prod paused 적용 완료 (2026-06-02)** |
-| `update_url_and_policy_fields_review` | 29건 | ⏳ 미적용 |
-| `dedupe_or_scope_review` | 20건 | ⏳ 수동 판정 필요 |
-| `insert_new_policy_review` | 4건 | ⏳ 미적용 |
-| `hold_url_manual_check` | 3건 | 🔴 보류 |
+| `update_url_and_policy_fields_review` | 18건(시트 최종본) | ✅ **dev 적용 완료 (2026-06-03, mig 004)** |
+| `dedupe_or_scope_review` | 13건 | ✅ **전건 '유지'(중복 0) — dev 보강 적용 (mig 005)** |
+| `insert_new_policy_review` | 2건 | ✅ **광진 백일돌컷 등록 / 양천 skip(허위) (mig 007)** |
+| `hold_url_manual_check` | 3건 | ✅ **크롤링 확정 후 적용 (mig 006)** |
 | `no_change` | ~45건 | — |
+
+> **2~5단계 dev 적용 완료(2026-06-03):** mig 004(정보수정18)·005(유지13보강)·006(보류URL3)·007(yongsan paused+광진신규). 004~006은 **UUID 기준이라 dev 전용**, prod는 slug 재작성 필요. 007은 slug/code 기준(yongsan UPDATE만 UUID). **prod 미반영.** 상세 교훈은 본문 하단 '2~5단계 교훈' 참조.
 
 **⚠️ dev/prod UUID 상이:** seed가 `gen_random_uuid()`라 같은 정책도 dev와 prod의 `policy.id`(UUID)가 **다름**. → 환경 간 마이그레이션은 반드시 **`canonical_slug` 기준**으로 작성(UNIQUE 보장). UUID 기준 SQL을 prod에 돌리면 0건 매칭 조용한 no-op. (이번 update_url_only도 UUID→slug 재작성 후 적용)
 
@@ -85,12 +87,23 @@ CLAUDE.md 규칙: DB 정정은 **반드시 `supabase/migrations/*.sql`로 기록
 
 **추가 deactivate 오분류 정정(2026-06-03):** `dongjak-multi-child-property-tax-exemption`(재산세 100%감면)도 deactivate 배치에서 잘못 paused→active 복구+내용보강. migration `20260603000003`. 누락 실혜택 후보 2건은 **출처 약해 보류**: 기형아검사(보건소 전용페이지 없음, 임산부등록 초기검사엔 미포함, 전단 02-820-9477만)/동작 시설요금감면(체육시설·구민대학 분산, 통합출처 없음).
 
-### 남은 수기검토 액션 (미적용)
+### 2~5단계 교훈 (2026-06-03) — ⚠️ 매칭엔진 함정
 
-- `update_url_and_policy_fields_review` 29건 — URL + 본문(summary/amount_text/application_method_text/raw_target_text) 동시 수정. 시트 col11~14가 최종값.
-- `dedupe_or_scope_review` 20건 — 중복 통합/scope 충돌. 수동 판정 필요(review_status `needs_merge` 활용 가능).
-- `insert_new_policy_review` 4건 — 신규 policy row 추가.
-- `hold_url_manual_check` 3건 — 대체 URL 필요, 보류.
+**`lib/queries/policies.ts` 매칭 규칙(검증 완료, 신규/수정 전 필독):**
+- **household_type = 하드 필터**(181~188행): 정책에 `policy_household_type`가 있으면 사용자 세대유형이 그 코드여야만 노출, 아니면 `return false`. **그런데 온보딩 세대유형 선택지는 `일반`/`한부모`(+임신준비)뿐**(`components/onboarding/step-family.tsx`, HOUSEHOLD_TYPE_MAP: 한부모→single_parent/다문화→multicultural/다자녀→multi_child). 즉 **multi_child·multicultural을 policy_household_type에 넣으면 그 정책은 누구에게도 안 보임(매칭 0)**. ⇒ 다자녀 정책은 `household_type` 쓰지 말고 **`birth_order_min`**(child_count로 매칭)으로만. (workflow가 dobong-childcare/insurance·ep-postpartum에 multi_child 추가 제안했으나 전면 폐기함.) single_parent만 실제 동작.
+- **income 매칭(200·330행): `median_income_percent`만 필터링됨**(threshold 초과 시 제외). `recipient_required`/`health_insurance_based`/`requires_review`는 **필터 안 됨**(needs_verification 플래그만). ⇒ income 타입을 median→recipient로 바꾸면 소득 필터가 사라져 노출이 넓어짐(정확성↑ vs 정밀도↓ 트레이드오프). dobong-atopy는 공식상 median 근거 없어 recipient로 정정, seongdong-unwed는 median 63%가 한부모 복지급여기준과 일치해 유지.
+- **`requires_pregnancy`는 매칭에서 미사용**(life_stage=pregnancy가 담당) → true/false 바꿔도 매칭 무영향(표시/메타용).
+
+**크롤링으로 확정한 데이터(공식출처+정부24, Playwright 사이트검색):**
+- gov 사이트 deep-link는 통합검색 폼(action+searchTerm/searchQuery 파라미터)을 JS로 채워 POST하면 찾힘(WebFetch/WebSearch 실패 시). jongno=`Main.do?menuNo=401428`, seongdong 가사돌봄=`sd.go.kr/main/contents.do?key=4188`(※key=4489는 '아픈아이 병원동행'=딴 정책), gangbuk=`menuNo=400146`(표준 HTTPS, :18000 포트 금지).
+- guro-0age amount_max=70만 **확정**(구로보건소 key=1332: 기본50/다자녀70만, 정부24엔 금액 누락). dobong-insurance 연령=84월(입양7세). gangnam-dad=96월(육아휴직 만8세, 법령파생). gangnam-birth=12월 유지(연령 아닌 신청기한 파생).
+- **seongdong-unwed-parent-utility 실체=`미혼모·미혼부 냉난방비 지원`**(현금, 1~2월·7~8월 월2.5만, 정부24 303000000307)이지 '공공요금 감면' 아님 → 제목 정정.
+- **yongsan-postpartum-copay → paused**: 용산 공식사이트(통합검색·게시판·보건소 전메뉴) 재확인해도 '본인부담금 90%환급(소득무관)' 자체사업 없음(광진은 전용페이지 실재해 대조됨). 서울시 통합 본인부담금 지원은 수급/차상위(소득기준 O)라 DB의 '소득무관'과 불일치. 현행 확인 시 active 복구.
+- **백일·돌컷='서울아이백일돌컷'(서울시 통합, seoultoy.or.kr, 8거점 자치구 센터 운영, 서울 거주 영아 대상)**. 광진은 거점 1곳이라 사용자 결정으로 `gwangjin-100day-dol-photo`(sigungu 11215, category=service, 촬영공간 무료대여) 신규 등록. **양천은 거점 아님 → 시트의 양천 항목은 광진 URL 복붙한 허위 → skip**.
+
+**신규 INSERT 패턴(mig 007):** FK는 code 기준 subquery(`(SELECT id FROM category WHERE code='service')`, region code='11215', life_stage code IN(...))로 dev/prod UUID 상이 회피. policy는 `ON CONFLICT (canonical_slug) DO NOTHING`, M:N은 PK로 ON CONFLICT, policy_eligibility는 unique 없어 `NOT EXISTS`로 idempotent. category 코드: cash/voucher/service/childcare/discount/tax_benefit/information.
+
+**드라이런 기법:** 적용 전 `sed 's/^COMMIT;/ROLLBACK;/'`로 임시본 만들어 `db query --linked -f`로 돌리면 데이터 변경 없이 에러/FK 검증 가능.
 
 ### 기타 남은 것
 
