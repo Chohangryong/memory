@@ -7,7 +7,7 @@ metadata:
   originSessionId: 22b310a0-fa75-473a-ac8f-a8dcefd24948
 ---
 
-부모로 "행사/이벤트" 메뉴(/events). FEATURE_EVENTS 게이트(Vercel Preview dev=1·운영 미설정). dev DB(lqqc) 적재. **2026-06-16 구현 완료 dev배포(지도+목록 통합·검색·현재위치). 운영(main) 미반영=오너 결정.**
+부모로 "행사/이벤트" 메뉴(/events). FEATURE_EVENTS 게이트. **✅2026-06-17 운영(bumoro.kr) 공개 완료**(운영DB pfwr 마이그3+ingest 4278건+Production env+Kakao 도메인). dev=lqqc·운영=pfwr 둘 다 적재. 통합UX·검색·좋아요·인기순·지역필터·현재위치·새 로고 전부 운영반영.
 
 ## 핵심 설계 통찰 (보존)
 - **공공 행사 API에 육아·영유아 전용 필터 없다** → 실시간 프록시❌, **배치 적재 + 부모로 자체 육아 태깅**⭕ (lib/events/tagging.ts).
@@ -46,5 +46,15 @@ metadata:
 - **지역 필터**: 서울25구 커스텀 드롭다운(native select 폐지=좌측정렬·focus글로우 문제). 칩순서 **전체→📍지역→영유아/임산부/가족/무료/유료**. '전체'칩=지역도 리셋(onChipChange 래퍼). 옵션=**실데이터 있는 구만**(availableGus=events distinct sigungu∩SEOUL_GU_CENTER). 선택→SEOUL_GU_CENTER[구] 좌표로 지도 panTo+setLevel(flyTo prop). 드롭다운 메뉴=**createPortal(document.body)**+버튼 getBoundingClientRect fixed(칩 가로스크롤·시트 transform 클립 회피). chipStyle 공통헬퍼·RegionOption.
 - 현재위치 FAB ◎→**"📍 내 위치" pill**(흰배경·sky테두리·강한그림자, locating/권한거부 텍스트통합).
 - ⚠️Playwright select/input 값변경=네이티브 setter+dispatchEvent. dev게이트 통과상태(쿠키). ?v=N 캐시우회. 라이트강제=다크토글 클릭. createClient 경로 lib/supabase/client.
+
+## ✅ 2026-06-17 운영(bumoro.kr) 공개 완료
+- 운영DB(pfwr) 마이그3 적용(events 20260615000008·event_searches 000005·event_likes 20260617000001, supabase link pfwrniqytvnlkhphnyid→query→link 복귀 lqqc) + ingest 4278건(seoul_culture3915·reservation363, 좌표100%).
+- Production env: NEXT_PUBLIC_KAKAO_MAP_API_KEY(JS키)·FEATURE_EVENTS=1·SEOUL_OPENAPI_KEY·TOUR_API_KEY. ⚠️**함정: 운영 env에 SEOUL_OPENAPI_KEY 없어 첫 ingest 200 success인데 0건**(adapter 키없음 건너뜀)→키추가+vercel redeploy(런타임 env 반영)+재적재로 해결.
+- 운영 ingest 수동=`gh workflow run events-ingest`(workflow_dispatch, .github/workflows/events-ingest.yml이 bumoro.kr 호출+GH Secret CRON_SECRET). 매일 KST06 자동.
+- main머지(dev 전체)→push→운영배포. Kakao bumoro.kr 도메인 등록됨(지도 정상 로드 확인). 운영 스모크 OK(게이트통과·지도·카운트일치·좋아요).
+- ⚠️dev→main 전체머지라 cl(준비물) 코드도 딸려옴=운영行(게이트로 보호).
+
+## ✅ 새 헤더 로고 (2026-06-17 운영반영)
+- nav.tsx 로고 SVG아이콘+"부모로"텍스트 → **부모로 워드마크 이미지**(public/bumoro-wordmark.png 라이트·bumoro-wordmark-dark.png 다크). 원본 PNG 흰배경→투명+여백trim(Pillow, lum<110 글자→다크용 흰색변환). class dark:hidden/hidden dark:block 분기. height26. dev→main 운영반영.
 
 설계서 SSOT=docs/events/2026-06-15-events-feature-design.md. API명세·생애주기코드=[[reference_govt_welfare_apis]]. 게이트 패턴=[[project_checklist_v2_analysis]] 동형. [[project_nationwide_open]].
