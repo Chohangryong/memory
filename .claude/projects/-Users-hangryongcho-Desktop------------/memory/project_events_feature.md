@@ -37,4 +37,14 @@ metadata:
 - event_searches(마이그 20260616000005): user_id(auth FK nullable·탈퇴 SET NULL)·query·result_count(0=미충족수요)·sido/sigungu·created_at. RLS INSERT anon/authenticated WITH CHECK(user_id IS NULL OR =auth.uid())=위조방지, SELECT 정책없음=service_role 분석전용.
 - saveEventSearch 액션(app/events/actions.ts): 디바운스 확정 시 1회(키스트로크마다 X·lastSavedRef 중복방지)·실패 조용히 무시.
 
+## 2026-06-16~17 UX 대폭 개선 (전부 dev 배포·실측 완료, 운영 미반영=오너)
+- ⚠️**지도=시트 위 가시영역만 차지**(sheetTop을 client로 리프트→mapHeight=sheetTop-56, EventsMapView relayout+bounds 재계산 rAF throttle). **이전 버그: 지도 풀스크린이라 getBounds가 시트 가림영역까지 포함→"지도 영역 N건"≠보이는 핀(14건인데 핀3개). 지도를 가시영역만으로=카운트 일치.** 사용자가 "지도 사이즈 줄여라"의 근본해법.
+- ⚠️**시트/카드 배경 투명 버그**: var(--surface) **미정의 변수**(globals.css 없음)→투명(rgba 0,0,0,0)→다크모드 지도 비침. **실제 배경 변수=var(--card)**(라이트#FFF/다크#1E1E1E). events 전체 --surface→--card 교체.
+- 다크모드 지도 타일: Kakao 네이티브 다크 미지원→.dark .bm-map-tiles{filter:invert(0.9) hue-rotate(180deg)}(globals.css). ⚠️Playwright headless는 GPU filter 못잡음(밝게 보임)→실기기 확인.
+- 검색바: 검은바(라이트#1a1a1a) 사용자반려→라이트=var(--gray-100)/다크=#2c2c2c, 텍스트·placeholder·✕=모드변수(흰색 하드코딩 제거). placeholder "행사 검색"(기관 제거). 한글 IME 마지막글자 중복=controlled value 재설정 버그→**uncontrolled(defaultValue+ref, clear는 ref.value='')**.
+- **좋아요+인기순**: event_likes(마이그 20260617000001, **PK(event_id,user_id)=중복방지**, RLS 공개SELECT·authenticated 본인 INSERT/DELETE). EventCard 우측 하트(🤍/❤️)+카운트, 옵티미스틱 토글(events-client onToggleLike, ensureClSession=익명세션 자동, 실패 롤백, Link내부라 preventDefault). fetchEvents가 event_likes 집계(like_count·liked, in() 조회 후 클라 count). 정렬 가까운순/날짜순 폐지→**인기순(like_count desc·동률 날짜순) 고정**, "🔥 인기순" 라벨.
+- **지역 필터**: 서울25구 커스텀 드롭다운(native select 폐지=좌측정렬·focus글로우 문제). 칩순서 **전체→📍지역→영유아/임산부/가족/무료/유료**. '전체'칩=지역도 리셋(onChipChange 래퍼). 옵션=**실데이터 있는 구만**(availableGus=events distinct sigungu∩SEOUL_GU_CENTER). 선택→SEOUL_GU_CENTER[구] 좌표로 지도 panTo+setLevel(flyTo prop). 드롭다운 메뉴=**createPortal(document.body)**+버튼 getBoundingClientRect fixed(칩 가로스크롤·시트 transform 클립 회피). chipStyle 공통헬퍼·RegionOption.
+- 현재위치 FAB ◎→**"📍 내 위치" pill**(흰배경·sky테두리·강한그림자, locating/권한거부 텍스트통합).
+- ⚠️Playwright select/input 값변경=네이티브 setter+dispatchEvent. dev게이트 통과상태(쿠키). ?v=N 캐시우회. 라이트강제=다크토글 클릭. createClient 경로 lib/supabase/client.
+
 설계서 SSOT=docs/events/2026-06-15-events-feature-design.md. API명세·생애주기코드=[[reference_govt_welfare_apis]]. 게이트 패턴=[[project_checklist_v2_analysis]] 동형. [[project_nationwide_open]].
