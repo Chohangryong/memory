@@ -11,6 +11,7 @@
 - [reference_cosmetics_notion.md](reference_cosmetics_notion.md) — cosmetics_scraping 전략 문서 Notion URL (K뷰티 로드맵 v2, 2026-04-25)
 
 ## Project
+- [project_300man_challenge.md](project_300man_challenge.md) — **한달300만원벌기(~/Desktop/한달300만원벌기/)**: 적대검증 루프 결론 = 300만/30일 불가 증명(18표 기각·최고 28%)→이원 목표 구조만 통과(85~93%, 30일=검증자산5종+분기조건부 50만, 300만=D150 로드맵). 겸업 게이트(8/10 취업규칙 판정)가 선행, 이커머스 인접 판매 금지(이해충돌), PLAN.md=기준선·스트레치=25~30%. 사용자 승인 대기
 - [project_ax_hackathon.md](project_ax_hackathon.md) — **AX 인재전쟁 해커톤 예선(마감 2026-07-10)**: 무신사 musinsa-listing-guard(혼용률 검증·정규화, 일본수출 프레임, 스토리 검증완료+금지문장 목록, 실측252건 19.8%, 일본세관 4/1·7/21 근거, GUIDE-musinsa.html로 사용자가 Codex에서 직접 제작)·MRT 상품정보표준화·삼일PwC 초도감사 DART MCP. 로그 원본 제출 필수(편집=실격), **클린룸: 회사 고유명사 발화금지+백지원칙(라이브 재검증, 본문 필독)**, 작업폴더 ~/Desktop/hackathon, 본선문제 회피. **참여설정·로그훅 검증완료(2026-07-05): 빌드=Claude Code(Codex아님)·.claude 훅 적대적테스트 PASS·Codex는 cwd=폴더서만 로그(상대경로 조용한유실)이나 Claude엔 무관·CLAUDE.md/메모리는 제출로그 미포함·서브에이전트로그 수동포함·docs/RULES.md 라이브캡처·codex-cli 0.142.5 재설치·Codex설치=marketplace add→plugin add·재사용 SETUP-SKILL.md+bootstrap-company.sh+SUBMIT-CHECKLIST.md(제출절차 단일 체크리스트)**
 - [project_sf_tracking_webhook.md](project_sf_tracking_webhook.md) — **SF순펑 웹훅(RoutePushService) 상태매핑, 회사 시스템 구축 지원**: 아누아홍콩 781송장 전수 재검증(v2). opCode 단독분기(80=무조건 COLLECTED 322건 확정, 70/33/126/99/517=EXCEPTION+해제로직, 125/642=픽업대기, 8000=80과 동시 종결), 125→80 도달 87%(v1 12%는 착시), 중복74% 멱등키, 스펙 docx v2=~/Downloads/SF_웹훅_상태처리_스펙_v2.docx. 우리 프로그램(SFTRACKINGLITE) 미사용 확정
 - [project_heisenberg_status.md](project_heisenberg_status.md) — heisenberg-agent 프로젝트 현황 (main 머지 완료)
