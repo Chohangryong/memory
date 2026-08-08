@@ -1,8 +1,9 @@
 ---
 name: project_bumoro
-description: 부모로(Bumoro) 임신·출산·육아 정부지원금 매칭+시점알림 웹앱. Next.js 15+Supabase, 4명 사이드, 6주 alpha. **2026-05-14 동작구 거주자 적용 정책 1,998건 정규화 + 31컬럼 CSV + 구글시트 28건 업로드 완료. 다음=사용자 검증(income_basis 보강 + ADR-0008 그룹핑 입력)**. 산출물=`/Users/hangryongcho/bumoro/{PRD,GRILL-LOG,CONTEXT}.md` + `docs/adr/0001~0003,0008` + `docs/research/dongjak-benefits.csv`. 워킹디렉토리=`/Users/hangryongcho/bumoro`
+description: (리포 Archived 2026-08-08, 부모로 2기 피벗으로 종료) 부모로(Bumoro) 임신·출산·육아 정부지원금 매칭+시점알림 웹앱. Next.js 15+Supabase, 4명 사이드, 6주 alpha. **2026-05-14 동작구 거주자 적용 정책 1,998건 정규화 + 31컬럼 CSV + 구글시트 28건 업로드 완료. 다음=사용자 검증(income_basis 보강 + ADR-0008 그룹핑 입력)**. 산출물=`/Users/hangryongcho/bumoro/{PRD,GRILL-LOG,CONTEXT}.md` + `docs/adr/0001~0003,0008` + `docs/research/dongjak-benefits.csv`. 워킹디렉토리=`/Users/hangryongcho/bumoro`
 type: project
 originSessionId: c523f95f-24db-4366-9345-08925795ebf9
+modified: 2026-08-08T12:55:28.930Z
 ---
 
 # 부모로 (Bumoro) — 프로젝트 현황

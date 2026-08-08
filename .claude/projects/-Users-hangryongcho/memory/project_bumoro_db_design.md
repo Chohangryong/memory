@@ -1,10 +1,11 @@
 ---
 name: project-bumoro-db-design
-description: "부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev+prod 완료(06-03, mig004~007, slug기준 변환됨). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비. **금액표시(06-03 A·C·B1):** amount_aggregation per_birth=출생아당합산(의도된설계,flip금지)/per_application단일/range_only. lib/amount.ts mode(exact/capped='최대N'/range/none), amount_text상한키워드검사. parse_breakdown정규식 brittle→명시맵migration백필. A가드레일 dev+PR#1대기(main직접푸시 차단), C(mig008 아이돌봄/재산세 데이터오류→range_only) B1(mig009 첫만남 첫째200/둘째+300 등 7건) dev+prod완료. B2태아수=같은날짜자녀 도출 미착수(per_fetus enum필요)"
+description: "(v1 동결 2026-08-08 — bumoro.kr·크론은 운영 유지, 개발만 중단. 태그 v1-final, 백업 ~/Desktop/부모로1기아카이브, 후속=project_bumoro_2gi) 부모로 DB설계+프론트 MVP (~/Desktop/부모로데이터베이스설계/, Chohangryong/bumoro 리포). bumoro-project와 별개. Supabase+Next.js16. 수기검토 261건 마이그레이션: 1단계 update_url_only 58 + deactivate 61 dev+prod 완료(06-02). 2~5단계(정보수정18·유지13·보류13·신규1) dev+prod 완료(06-03, mig004~007, slug기준 변환됨). ⚠️매칭함정: household_type 하드필터인데 온보딩은 일반/한부모뿐→multi_child 넣으면 매칭0(다자녀는 birth_order_min). income median만 필터됨. dev·prod UUID 상이→slug기준. 백일돌컷=서울아이(양천 거짓), yongsan paused, seongdong-unwed=냉난방비. **금액표시(06-03 A·C·B1):** amount_aggregation per_birth=출생아당합산(의도된설계,flip금지)/per_application단일/range_only. lib/amount.ts mode(exact/capped='최대N'/range/none), amount_text상한키워드검사. parse_breakdown정규식 brittle→명시맵migration백필. A가드레일 dev+PR#1대기(main직접푸시 차단), C(mig008 아이돌봄/재산세 데이터오류→range_only) B1(mig009 첫만남 첫째200/둘째+300 등 7건) dev+prod완료. B2태아수=같은날짜자녀 도출 미착수(per_fetus enum필요)"
 metadata: 
   node_type: memory
   type: project
   originSessionId: 7dddfe09-d24f-498c-afa2-e434c75160ba
+  modified: 2026-08-08T12:55:32.366Z
 ---
 
 # 부모로 DB설계 + 프론트 MVP
