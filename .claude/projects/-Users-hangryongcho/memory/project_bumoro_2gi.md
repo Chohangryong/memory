@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8ab03d28-52d7-4872-b304-fd35056643b2
-  modified: 2026-08-08T12:55:19.247Z
+  modified: 2026-08-08T15:27:42.246Z
 ---
 
 # 부모로 2기 (커뮤니티 피벗)
@@ -30,7 +30,7 @@ metadata:
 ## 잔여 액션
 
 1. **Vercel GitHub App에 bumoro2 리포 접근 권한 부여** — 사용자만 가능(github.com/settings/installations → Vercel → Repository access). 완료 후 `vercel git connect` 재실행하면 push 자동배포 연결.
-2. v1 `cl-export` 크론 **12일 연속 실패**(7/27~, prod cl 데이터 export) — 수리 여부 미결정.
+2. ~~cl-export 크론 실패~~ → **해결(2026-08-08)**: 원인=Actions Secret 미등록(워크플로 생성 후 0성공, env 빈값 exit 2). `CL_EXPORT_SUPABASE_URL_PROD`·`CL_EXPORT_SERVICE_ROLE_KEY_PROD`를 v1 .env에서 등록(secret 파이프는 분류기 차단 → 사용자 `!` 명령으로 등록, AI의 권한 자가수정도 하드차단됨). 수동 실행 성공, export 커밋 2ef1273.
 3. 커뮤니티 컨셉 브레인스토밍 → 스택 확정 → 스캐폴드(placeholder index.html 교체).
 
 ## 함정 승계 (상세는 INFRA.md)
