@@ -16,3 +16,12 @@ bumoro/
 
 # myautomation: separate local automation repo
 myautomation/
+
+# bumoro v1: separate project repo Chohangryong/bumoro (2026-08-08 동결, 이중추적 해소)
+Desktop/부모로데이터베이스설계/
+# bumoro 2기: separate new project repo
+Desktop/부모로2기/
+# bumoro v1 아카이브: secrets/DB덤프 포함 — 절대 커밋 금지
+Desktop/부모로1기아카이브/
+# bumoro scraping: separate repo Chohangryong/bumoro-scraping
+Desktop/bumoro-scraping/
