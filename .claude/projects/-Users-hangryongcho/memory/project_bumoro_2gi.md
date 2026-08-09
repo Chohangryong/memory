@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8ab03d28-52d7-4872-b304-fd35056643b2
-  modified: 2026-08-09T07:22:18.125Z
+  modified: 2026-08-09T08:17:58.472Z
 ---
 
 # 부모로 2기 (커뮤니티 피벗)
@@ -42,6 +42,18 @@ metadata:
 **night-layer 필수 인계**: ① 본인 글·댓글 삭제 경로 부재(RLS DELETE 정책 없음·deleted_at grant 없음 — 개인정보 담긴 글을 본인이 못 지움) ② 쿨다운이 RLS 가시 글만 카운트 → 모더레이션 태스크의 하드 선행조건 ③ FeedItem 매핑 2곳 복제 → 첫 태스크에서 fetchPost 추출 후 필드 추가 ④ globals.css `color-scheme: light`는 밤 모드 설계 시 의도적 복원 지점 ⑤ Server Action 자동 테스트 0 — 게이트 수정 시 테스트 통과 수치를 근거로 삼지 말 것 ⑥ 회원 계층 7건(승격·탈퇴·정리크론·열람RPC·고지·/me·글삭제).
 
 **INFRA.md 위험 정정**: 2기 마이그레이션의 `grant ... to anon`을 v1 프로젝트에 적용하면 정책 524건·가입자 25명 전면 개방 — 문서에 경고 명문화, `s2_` 접두사 방침 폐기(2기는 빈 프로젝트).
+
+## ⚠️ 신원 모델 = "게스트 세션 + 계정 승격" (레딧 모델 기각, 2026-08-09 1차 검증)
+
+**"레딧형" 명명 폐기.** 레딧은 이메일이 없어도 사용자가 아는 자격증명(id+pw)을 항상 보유 → 대가는 복구 실패 하나, 이동은 언제나 가능. 우리 signInAnonymously는 사용자가 아는 자격증명 0개(쿠키만) → 복구+이동 둘 다 상실. **레딧은 오히려 자격증명 없는 세션의 게시·댓글·투표를 전면 금지**(익명 열람 30분 종료). 가져올 원칙은 "이메일 필수"가 아니라 **"회수 가능한 자격증명 최소 1개"**. 용어: 레딧모델→게스트 세션+계정 승격 / 익명 회원→미승격 게스트 / 이메일은 선택→회수 수단 미확보.
+
+**🚨 데이터 손실 위험**: profile→auth.users ON DELETE CASCADE + post/comment→profile CASCADE. auth 1행 삭제 = 글 전멸. **Supabase auth 서버에 익명 30일 자동삭제 코드 실재(cleanup.go, PR#1497), 호스티드 활성화 여부 비공개** → 탈퇴 기능 없어도 글이 사라질 수 있음. profile을 신원 tombstone으로 분리(정석안 확정)하기 전엔 클라우드에 실사용 데이터 금지.
+
+**Supabase 승격 확정 사실**: ①@supabase/ssr이 PKCE 강제 → **이메일 링크는 카톡인앱↔사파리에서 100% 실패**, 6자리 OTP 단일 경로 ②'Change Email Address' 템플릿에 `{{ .Token }}` 없으면 코드 미발송·조용한 실패 ③확인 전 이메일은 선점 안 됨(email_change는 중복검사 미포함) → 두 게스트 동시 신청 가능 ④확인 후 refreshSession() 필요(기존 토큰 클레임은 is_anonymous=true 유지) ⑤익명은 비밀번호 설정 서버 거부 ⑥기기이전은 signInWithOtp({shouldCreateUser:false}) 필수 ⑦Manual Linking 토글 안 켜면 소셜 연결 즉시 실패 ⑧익명 rate limit 30/h/IP 조정불가 가정(NAT+카톡 동시유입 시 조용한 진입실패) ⑨정리크론은 공식예시(30일) 쓰면 활성 작성자 글까지 삭제 → "글 0건 게스트"만.
+
+**사용자 확정(2026-08-09)**: 신원구조=정석안(profile 자체PK+auth_user_id nullable) / 밤모드=시간이 결정(22-06 무조건 밤, 기기설정 무관) / 클라우드=T8 시점 bumoro-dev 일시중지 승인 / 승격=이메일 OTP 단독(카카오는 실기기 실험 후) / 탈퇴=글 보존+익명화+일괄삭제 옵션 병기.
+
+**night-layer 계획**: plans/2026-08-09-night-layer.md, 12태스크. 하드 의존 T1→T2, T3→T4·T8·T10, **T5→T6(테스트 하니스 없이 모더레이션 금지)**. 실기기 검증은 T2/T7=LAN, **T8 Step0=Vercel Preview+SMTP(카톡인앱·이메일 최초 검증)**, T12=프로덕션. 최대 일정 리스크=T8 Step0 지연.
 
 ## 회원 관리 리서치 (커뮤니티 10곳, docs/research/)
 

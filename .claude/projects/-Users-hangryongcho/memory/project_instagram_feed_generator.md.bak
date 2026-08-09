@@ -1,0 +1,53 @@
+---
+name: instagram-feed-generator project status
+description: Instagram Feed Generator 프로젝트 현황 — Phase 2 master 머지 완료
+type: project
+originSessionId: aee1c5b5-ef58-4600-89f4-107b66db635a
+---
+## Instagram Feed Generator — 프로젝트 현황 (2026-04-16)
+
+### 프로젝트 요약
+GitHub Trending 레포 자동 수집 → LLM 콘텐츠 가공 → 캐러셀 이미지 생성 → Slack 공유 → Instagram 자동 게시 파이프라인.
+Python 3.11, Pydantic v2, LiteLLM, Playwright, Jinja2, slack-bolt, APScheduler.
+수익화 목표로 인스타그램 계정 운영 중 (팔로워 보유).
+
+### 프로젝트 경로
+`/Users/hangryongcho/instagram-feed-generator`
+
+### GitHub 레포
+`https://github.com/Chohangryong/instagram-feed-generator` (private)
+
+### 현재 브랜치 상태 (2026-04-16)
+- **master (b2f01fb)**: v5.1 + Phase 2 머지 완료
+  - 코랄 팔레트 + Feature 딥다이브 + Wanted Sans + 정보 밀도 개선
+  - Instagram 자동 게시 (R2 + Graph API + Slack 승인 버튼)
+  - 140 tests passed
+
+### Phase 2 완료 항목
+- R2 버킷 `instagram-feed-images` + Public URL
+- Meta Business Login (instagram-publisher)
+- Instagram OAuth 토큰 → `data/tokens/instagram.json`
+  - IG 계정: @hot.code.pieces (조각모음)
+  - 토큰 만료: 2026-06-15
+- `config/settings.yaml`: instagram.enabled: true, auto_publish: false (Slack 승인 버튼 방식)
+- 엔드투엔드 동작 확인: rebase 후 listen 모드에서 agent-skills 레포로 전체 파이프라인 성공
+
+### 미구현 (보류)
+- Slack 타임아웃/리마인더 — listen 모드에서는 10분 busy timeout으로 충분. 스케줄 모드 본격 운영 시 구현 예정
+
+### 특별판 게시 이력
+특별판 소스·카피·캡션은 `docs/specials/YYYY-MM-DD-{topic}.md`에 보관한다 (재사용 참고용).
+- 2026-04-17 — Claude Opus 4.7 출시 (Typographic Hero 디자인, 7장 캐러셀) — `special/opus-4-7` 브랜치
+- 이전: 클로드 데스크톱 2.0 (`render_special_claude_desktop.py`)
+
+특별판 구조 (기존 템플릿 재활용):
+- `render_special_{topic}.py` — SLIDES 데이터 + CSS 오버라이드
+- `scripts/upload_{topic}.py` — R2 + Instagram 업로드
+- `data/stock_images/{topic}_special/` — Hook 이미지 보관
+
+### 브랜치 정책 (중요)
+- **특별판: `special/{topic}` 브랜치에 격리. master로 머지하지 않음.**
+  일회성 수작업 스크립트·하드코딩 카피가 공용 코드베이스를 오염시키는 것 방지.
+- **일반 기능(예: 이미지 캐시): `feat/{name}` 브랜치 → 완료 시 master 머지.**
+  `src/agents/github_hot_repo/` 자동 파이프라인에 통합되는 코드.
+- 특별판 중 공용화 가치 있는 로직은 별도 PR로 `src/core/`에 추출.

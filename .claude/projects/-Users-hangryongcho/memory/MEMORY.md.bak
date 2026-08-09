@@ -1,0 +1,13 @@
+# Memory Index
+
+## User
+- [user_profile.md](user_profile.md) — 소프트웨어 엔지니어, Python/LLM, 인스타 피드생성기(수익화) + heisenberg
+
+## Feedback
+- [feedback_work_style.md](feedback_work_style.md) — 승인 기반 워크플로우, 최소 변경 원칙, 단계별 확인 선호
+
+## Project
+- [project_heisenberg_status.md](project_heisenberg_status.md) — heisenberg-agent 프로젝트 현황 (main 머지 완료)
+- [project_key_decisions.md](project_key_decisions.md) — heisenberg 기술 결정 (selector, sync, Notion 등)
+- [project_instagram_feed_generator.md](project_instagram_feed_generator.md) — instagram-feed-generator v5.1 + Phase 2 master 머지 완료 (Instagram 자동 게시)
+- [project_cosmetics_scraping.md](project_cosmetics_scraping.md) — 뷰티 랭킹 수집기 Stage 2 진행중 (파싱 API 수정 완료, 재실행 필요)
