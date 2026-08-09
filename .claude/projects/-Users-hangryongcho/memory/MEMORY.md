@@ -6,6 +6,7 @@
 ## Feedback
 - [feedback_work_style.md](feedback_work_style.md) — 승인 기반 워크플로우, 최소 변경 원칙, 단계별 확인 선호
 - [feedback_planning_workflow.md](feedback_planning_workflow.md) — 큰 변경·방향성 결정은 codex review + agent-driven (subagent dispatch) 강제; 임의 진행 금지
+- [feedback_no_ai_emoji.md](feedback_no_ai_emoji.md) — AI 장식 이모지(체크·로켓·반짝이·축하 등) 금지: 채팅 보고·문서·제품 카피 전부. 기능적 이모지(아바타)는 예외, 신규 도입 시 확인
 - [feedback_docs_html.md](feedback_docs_html.md) — **사람이 읽는 문서는 .md 금지, HTML로 작성**(spec/design/plan/분석리포트/회의자료). MD는 "너무 어려워"라 브라우저 문서 선호. README·CLAUDE.md·자동메모리 등 도구용은 MD 유지. brainstorming 스킬이 .md 지시해도 이 규칙 우선
 
 ## Reference
