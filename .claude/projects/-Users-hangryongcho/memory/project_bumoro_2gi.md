@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 8ab03d28-52d7-4872-b304-fd35056643b2
-  modified: 2026-08-08T15:27:42.246Z
+  modified: 2026-08-09T02:07:22.936Z
 ---
 
 # 부모로 2기 (커뮤니티 피벗)
@@ -31,7 +31,14 @@ metadata:
 
 1. **Vercel GitHub App에 bumoro2 리포 접근 권한 부여** — 사용자만 가능(github.com/settings/installations → Vercel → Repository access). 완료 후 `vercel git connect` 재실행하면 push 자동배포 연결.
 2. ~~cl-export 크론 실패~~ → **해결(2026-08-08)**: 원인=Actions Secret 미등록(워크플로 생성 후 0성공, env 빈값 exit 2). `CL_EXPORT_SUPABASE_URL_PROD`·`CL_EXPORT_SERVICE_ROLE_KEY_PROD`를 v1 .env에서 등록(secret 파이프는 분류기 차단 → 사용자 `!` 명령으로 등록, AI의 권한 자가수정도 하드차단됨). 수동 실행 성공, export 커밋 2ef1273.
-3. 커뮤니티 컨셉 브레인스토밍 → 스택 확정 → 스캐폴드(placeholder index.html 교체).
+3. ~~커뮤니티 컨셉 브레인스토밍~~ → **완료(2026-08-09)**: 설계 v2 확정 = "밤에 여는 부모 커뮤니티"(스펙 docs/superpowers/specs/*.html, 정책DB 제외·토스 규칙 9개·익명 발행). 구현 계획 1(커뮤니티 코어 8태스크, plans/2026-08-09-community-core.md) **v2 = 적대적 감사 반영 완료, 실행 방식 결정 대기**(서브에이전트 vs 인라인).
+
+## 감사에서 확정된 기술 함정 (2026-08-09, 재사용 가치 높음)
+
+- **PostgREST 임베드는 노출 스키마 간 FK 필수** — post.user_id가 auth.users를 참조하면 `profile(nickname)` 임베드가 PGRST200으로 실패. public.profile을 직접 참조해야 함(라이브 재현 확인).
+- **Next.js Server Component는 쿠키 쓰기 불가** — 페이지에서 signInAnonymously 하면 세션이 매 요청 유실 + 익명 rate limit(30/h/IP) 소진. 세션 생성은 Server Action 전용 + proxy.ts(updateSession)가 토큰 갱신 담당.
+- **Supabase 마이그레이션에 GRANT 블록 필수** — RLS 이전 롤 권한 단계에서 42501 전면 거부.
+- **create-next-app은 비어있지 않은 폴더에서 즉시 exit 1**(README.md도 허용 목록에 없음) — 임시 디렉토리 생성 후 복사가 정석.
 
 ## 함정 승계 (상세는 INFRA.md)
 
