@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: 8ab03d28-52d7-4872-b304-fd35056643b2
-  modified: 2026-08-09T00:37:41.227Z
+  modified: 2026-08-09T01:19:51.945Z
 ---
 
 설계문서·기획서·분석 리포트 등 **사람이 읽는 문서는 마크다운이 아니라 HTML로 만든다.**
@@ -15,6 +15,7 @@ metadata:
 **How to apply:**
 - 대상: spec/design/plan/브레인스토밍 결과/분석 리포트/회의자료 등 **사람이 읽는 문서 전부**
 - 제외: README, CLAUDE.md, 자동메모리, 커밋 메시지 등 **도구·에이전트가 읽는 파일**은 MD 유지
+- **구현 계획서(`docs/superpowers/plans/*.md`)도 예외 — MD 유지.** 서브에이전트가 `- [ ]` 체크박스로 진행을 추적하며 실행하는 실행 아티팩트라 HTML로 바꾸면 subagent-driven-development가 깨진다. 대신 **읽기용 HTML 개요를 함께 발행**해 사용자 검토용으로 제공할 것(2026-08-09 합의)
 - 리포에 커밋할 땐 `docs/**/*.html`로 저장 (기존 관례와 동일)
 - 공유가 필요하면 Artifact로 발행해 URL을 함께 제공
 - 스타일: Pretendard + 카드형 블록 + 표. 기존 문서(`TalkFile_부모로_성장시스템_시안.html`)의 톤이 사용자 취향
